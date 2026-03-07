@@ -1,1153 +1,615 @@
 'use client';
+import React, { useState, useEffect, useCallback } from 'react';
 
-import { useState, useEffect, useCallback } from 'react';
+/* ─── Types ───────────────────────────────────────────── */
+interface Product {
+  id: string; name: string; category: string; tier: string | null;
+  base_price: number; description: string; delivery_method: string | null;
+  target_audience: string | null; customer_outcome: string | null;
+  engagement_model: string | null; tags: string[] | null;
+  stripe_product_id: string | null; stripe_price_id: string | null;
+}
+interface CategoryStat { category: string; cnt: number; min_price: number; max_price: number; }
+interface CartItem { product: Product; qty: number; }
 
-// ============================================================
-// TYPES (inline for single-file deployment reliability)
-// ============================================================
-type AgentState = 'requested' | 'interpreted' | 'compiled' | 'validated' | 'approved' | 'staged' | 'live' | 'paused' | 'retired';
-type Channel = 'linkedin' | 'email' | 'phone' | 'crm' | 'webchat' | 'internal';
-type ReadinessLevel = 'ready' | 'needs_setup' | 'blocked';
-type ActionType = 'create' | 'read' | 'update' | 'send' | 'classify' | 'score' | 'escalate' | 'pause' | 'resume';
-type Stage = 'targeting' | 'messaging' | 'engagement' | 'qualification' | 'booking' | 'proposal' | 'negotiation' | 'close' | 'other';
+/* ─── Icon components ─────────────────────────────────── */
+const Icons = {
+  Bot: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="3"/><line x1="12" y1="8" x2="12" y2="11"/><circle cx="8" cy="16" r="1"/><circle cx="16" cy="16" r="1"/></svg>,
+  Shield: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
+  Zap: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+  Cart: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>,
+  Search: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
+  Arrow: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 inline"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
+  Check: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5"><polyline points="20 6 9 17 4 12"/></svg>,
+  X: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  Globe: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>,
+  Headphones: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6"><path d="M3 18v-6a9 9 0 0118 0v6"/><path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z"/></svg>,
+};
 
-interface AgentContract {
-  contract_id: string;
-  version: string;
-  created_at: string;
-  updated_at: string;
-  identity: { agent_name: string; agent_type: string; template_family: string; description: string; owner_business_id: string; owner_customer_id: string; };
-  objective: { primary_goal: string; success_metrics: string[]; kpis: Record<string, string>; };
-  operating_mode: { autonomy_level: string; escalation_threshold: number; max_actions_per_hour: number; operating_hours: { start: string; end: string; timezone: string }; batch_size: number; };
-  channels: Channel[];
-  tasks: Array<{ task_id: string; name: string; description: string; trigger: string; action_type: ActionType; channel: Channel; stage: Stage; guardrails: string[]; }>;
-  inputs: Array<{ name: string; type: string; source: string; required: boolean; }>;
-  outputs: Array<{ name: string; type: string; destination: string; }>;
-  controls: { guardrails: string[]; max_daily_actions: number; require_human_approval: string[]; blocked_actions: string[]; compliance_rules: string[]; discount_ceiling_pct: number; escalation_rules: Array<{ trigger: string; action: string; notify: string[] }>; };
-  access_profile: Record<string, string>;
-  secrets_profile: Record<string, string>;
-  observability: { log_level: string; alert_channels: string[]; retention_days: number; dashboards: string[]; };
-  commercial_model: { plan_type: string; billing_cycle: string; base_price_cents: number; usage_rate_per_action_cents: number; stripe_customer_id: string; stripe_subscription_id: string; };
-  deployment: { environment: string; state: AgentState; region: string; scaling: { min_instances: number; max_instances: number }; };
-  acceptance_criteria: { test_scorecard_required: boolean; min_score: number; red_team_required: boolean; hard_fail_conditions: string[]; };
-  audit: { created_by: string; approved_by: string | null; state_history: Array<{ from: string | null; to: string; timestamp: string; actor: string; reason: string }>; compliance_tags: string[]; };
-  dependency_packs: string[];
-  readiness_score: number;
-  readiness_level: ReadinessLevel;
+/* ─── Category icon mapping ───────────────────────────── */
+const catIcons: Record<string, string> = {
+  'Strategic AI': '🧠', 'Training AI': '🎓', 'Process AI': '⚙️', 'Analytics AI': '📊',
+  'Risk Management': '🛡️', 'Voice AI': '🎙️', 'HR AI': '👥', 'Marketing AI': '📣',
+  'Customer Experience': '💬', 'Operations': '🔧', 'Governance & Compliance': '📋',
+  'Platform AI': '🌐', 'Productivity AI': '⚡', 'Bundle': '📦', 'Product': '🏷️',
+  'Service': '🔨', 'Hardware': '💻', 'Support': '🛟', 'Consulting': '💼',
+  'Training': '📚', 'Package Extra': '➕', 'Analytics & Intelligence': '🔍',
+  'Strategy & Consulting': '🎯', 'Process Automation': '🤖',
+};
+
+const tierColors: Record<string, string> = {
+  Core: 'bg-blue-100 text-blue-700', Premium: 'bg-purple-100 text-purple-700',
+  Enterprise: 'bg-amber-100 text-amber-700',
+};
+
+function formatPrice(p: number) {
+  if (p >= 1000) return `$${(p/1000).toFixed(p%1000===0?0:1)}K`;
+  return `$${p.toFixed(p%1===0?0:2)}`;
 }
 
-interface Customer { customer_id: string; email: string; name: string; company: string; stripe_customer_id: string; created_at: string; }
-interface AgentOrder { order_id: string; customer_id: string; request_type: string; request_payload: any; contract_id: string | null; status: string; created_at: string; }
-interface AgentInstance { instance_id: string; contract_id: string; customer_id: string; state: AgentState; environment: string; created_at: string; updated_at: string; }
-interface AuditEvent { id: string; timestamp: string; actor: string; action: string; target: string; details: string; }
-interface UsageEvent { id: string; contract_id: string; timestamp: string; actions_count: number; token_cost: number; tool_cost: number; }
+/* ═══════════════════════════════════════════════════════ */
+/*  MAIN APP                                              */
+/* ═══════════════════════════════════════════════════════ */
+export default function Home() {
+  const [view, setView] = useState<'landing'|'catalog'|'configure'|'cart'|'dashboard'>('landing');
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<CategoryStat[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+  const [selCat, setSelCat] = useState<string|null>(null);
+  const [selTier, setSelTier] = useState<string|null>(null);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<Product|null>(null);
+  const [wizardStep, setWizardStep] = useState(0);
+  const [contractData, setContractData] = useState({ company: '', email: '', name: '', sla: 'standard' });
+  const [submitting, setSubmitting] = useState(false);
+  const [orderResult, setOrderResult] = useState<any>(null);
 
-// ============================================================
-// IN-MEMORY STORE
-// ============================================================
-let DB = {
-  customers: [] as Customer[],
-  orders: [] as AgentOrder[],
-  contracts: [] as AgentContract[],
-  instances: [] as AgentInstance[],
-  audit: [] as AuditEvent[],
-  usage: [] as UsageEvent[],
-  connectedPacks: {} as Record<string, string[]>,
-};
+  const fetchCatalog = useCallback(async (cat?: string|null, tier?: string|null, q?: string) => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (cat) params.set('category', cat);
+    if (tier) params.set('tier', tier);
+    if (q) params.set('q', q);
+    try {
+      const r = await fetch(`/api/catalog?${params}`);
+      const data = await r.json();
+      if (data.success) {
+        setProducts(data.products || []);
+        if (data.categories) setCategories(data.categories);
+      }
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  }, []);
 
-function uid() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16); }); }
-function now() { return new Date().toISOString(); }
+  useEffect(() => { if (view === 'catalog') fetchCatalog(selCat, selTier, search); }, [view, selCat, selTier]);
 
-function audit(actor: string, action: string, target: string, details: string) {
-  DB.audit.unshift({ id: uid(), timestamp: now(), actor, action, target, details });
-}
+  const addToCart = (p: Product) => {
+    setCart(prev => {
+      const existing = prev.find(c => c.product.id === p.id);
+      if (existing) return prev.map(c => c.product.id === p.id ? {...c, qty: c.qty+1} : c);
+      return [...prev, { product: p, qty: 1 }];
+    });
+  };
+  const removeFromCart = (id: string) => setCart(prev => prev.filter(c => c.product.id !== id));
+  const cartTotal = cart.reduce((s, c) => s + c.product.base_price * c.qty, 0);
 
-// ============================================================
-// TEMPLATES & PACKS
-// ============================================================
-const TEMPLATES = [
-  { id: 'lead_gen', name: 'Lead Generation', cat: 'Revenue', desc: 'AI-powered prospect identification, outreach, and qualification', icon: '🎯' },
-  { id: 'customer_service', name: 'Customer Service', cat: 'Support', desc: 'Automated ticket handling, FAQ responses, and escalation', icon: '💬' },
-  { id: 'sales', name: 'Sales Automation', cat: 'Revenue', desc: 'Pipeline management, proposal generation, and deal closing', icon: '💰' },
-  { id: 'finance', name: 'Finance Operations', cat: 'Back Office', desc: 'Invoice processing, payment tracking, and reconciliation', icon: '📊' },
-  { id: 'operations', name: 'Operations', cat: 'Back Office', desc: 'Workflow automation, scheduling, and process monitoring', icon: '⚙️' },
-  { id: 'recruitment', name: 'Recruitment', cat: 'HR', desc: 'Candidate sourcing, screening, and interview scheduling', icon: '👥' },
-  { id: 'onboarding', name: 'Customer Onboarding', cat: 'Growth', desc: 'Welcome flows, setup guidance, and training coordination', icon: '🚀' },
-];
-
-const PACKS: Record<string, { name: string; desc: string }> = {
-  email_pack: { name: 'Email Pack', desc: 'Send and receive emails' },
-  calendar_pack: { name: 'Calendar Pack', desc: 'Book meetings and manage events' },
-  crm_pack: { name: 'CRM Pack', desc: 'Read/write leads and deals' },
-  voice_pack: { name: 'Voice Pack', desc: 'Outbound/inbound voice calls' },
-  faq_pack: { name: 'FAQ Pack', desc: 'Knowledge base lookup' },
-  escalation_pack: { name: 'Escalation Pack', desc: 'Human escalation routing' },
-  pricing_pack: { name: 'Pricing Pack', desc: 'Dynamic pricing and quoting' },
-};
-
-const PACK_MAP: Record<string, string[]> = {
-  lead_gen: ['email_pack', 'crm_pack', 'calendar_pack', 'escalation_pack'],
-  customer_service: ['email_pack', 'faq_pack', 'escalation_pack', 'crm_pack'],
-  sales: ['email_pack', 'crm_pack', 'calendar_pack', 'pricing_pack', 'escalation_pack'],
-  finance: ['email_pack', 'escalation_pack'],
-  operations: ['email_pack', 'calendar_pack', 'escalation_pack'],
-  recruitment: ['email_pack', 'calendar_pack', 'crm_pack'],
-  onboarding: ['email_pack', 'calendar_pack', 'faq_pack'],
-};
-
-const STARTER_PACKS = [
-  { id: 'revenue_starter', name: 'Revenue Starter', desc: 'Lead gen + sales automation', templates: ['lead_gen', 'sales'], packs: ['email_pack', 'crm_pack', 'calendar_pack', 'pricing_pack'], channels: ['email', 'linkedin', 'crm'] as Channel[], price: 99 },
-  { id: 'cs_starter', name: 'Customer Service Starter', desc: 'Auto-respond, route, escalate', templates: ['customer_service'], packs: ['email_pack', 'faq_pack', 'escalation_pack', 'crm_pack'], channels: ['email', 'webchat'] as Channel[], price: 49 },
-  { id: 'finance_starter', name: 'Finance Starter', desc: 'Invoice, payment, reconciliation', templates: ['finance'], packs: ['email_pack', 'escalation_pack'], channels: ['email', 'internal'] as Channel[], price: 49 },
-  { id: 'ops_starter', name: 'Operations Starter', desc: 'Scheduling, workflow, monitoring', templates: ['operations'], packs: ['email_pack', 'calendar_pack', 'escalation_pack'], channels: ['email', 'internal'] as Channel[], price: 49 },
-];
-
-// ============================================================
-// INTENT INTERPRETER
-// ============================================================
-const INTENT_KEYWORDS: Record<string, string[]> = {
-  lead_gen: ['lead', 'prospect', 'outreach', 'linkedin', 'cold email', 'pipeline', 'generate leads'],
-  customer_service: ['support', 'helpdesk', 'tickets', 'faq', 'complaints', 'service'],
-  sales: ['sales', 'close deals', 'proposal', 'quotes', 'negotiate', 'revenue', 'deal'],
-  finance: ['invoice', 'billing', 'payment', 'finance', 'reconciliation', 'expense'],
-  operations: ['operations', 'scheduling', 'workflow', 'automation', 'process', 'coordinate'],
-  recruitment: ['hiring', 'recruit', 'talent', 'candidate', 'interview', 'resume'],
-  onboarding: ['onboard', 'welcome', 'new customer', 'getting started', 'setup'],
-};
-
-function interpretText(text: string) {
-  const lower = text.toLowerCase();
-  let best = 'operations', bestScore = 0;
-  for (const [fam, kws] of Object.entries(INTENT_KEYWORDS)) {
-    const score = kws.filter(k => lower.includes(k)).length / kws.length;
-    if (score > bestScore) { bestScore = score; best = fam; }
-  }
-  const channels: Channel[] = [];
-  if (lower.includes('email') || lower.includes('mail')) channels.push('email');
-  if (lower.includes('linkedin') || lower.includes('social')) channels.push('linkedin');
-  if (lower.includes('phone') || lower.includes('call')) channels.push('phone');
-  if (lower.includes('chat') || lower.includes('website')) channels.push('webchat');
-  if (channels.length === 0) channels.push('email');
-  const confidence = Math.min(0.95, 0.3 + bestScore * 2);
-  const friction = Math.max(0.1, 1 - confidence);
-  return { family: best, channels, packs: PACK_MAP[best] || ['email_pack'], confidence, friction };
-}
-
-// ============================================================
-// CONTRACT COMPILER
-// ============================================================
-function compileContract(w: WizardData): AgentContract {
-  const id = uid();
-  const ts = now();
-  let family = w.template || 'operations';
-  let channels = w.channels;
-  let packs = w.packs;
-
-  if (w.freeText && !w.template) {
-    const interp = interpretText(w.freeText);
-    family = interp.family;
-    if (channels.length === 0) channels = interp.channels;
-    if (packs.length === 0) packs = interp.packs;
-  }
-  if (packs.length === 0) packs = PACK_MAP[family] || ['email_pack'];
-
-  const taskDefs: Record<string, Array<{ name: string; stage: Stage; action: ActionType }>> = {
-    lead_gen: [{ name: 'Identify prospects', stage: 'targeting', action: 'classify' }, { name: 'Enrich data', stage: 'targeting', action: 'read' }, { name: 'Send outreach', stage: 'messaging', action: 'send' }, { name: 'Track responses', stage: 'engagement', action: 'classify' }, { name: 'Qualify leads', stage: 'qualification', action: 'score' }, { name: 'Book calls', stage: 'booking', action: 'create' }],
-    customer_service: [{ name: 'Monitor queries', stage: 'engagement', action: 'read' }, { name: 'Classify tickets', stage: 'qualification', action: 'classify' }, { name: 'Auto-respond FAQs', stage: 'messaging', action: 'send' }, { name: 'Escalate issues', stage: 'other', action: 'escalate' }],
-    sales: [{ name: 'Manage pipeline', stage: 'qualification', action: 'update' }, { name: 'Generate proposals', stage: 'proposal', action: 'create' }, { name: 'Send follow-ups', stage: 'negotiation', action: 'send' }, { name: 'Close deals', stage: 'close', action: 'update' }],
-    finance: [{ name: 'Process invoices', stage: 'other', action: 'create' }, { name: 'Track payments', stage: 'other', action: 'read' }, { name: 'Send reminders', stage: 'messaging', action: 'send' }],
-    operations: [{ name: 'Schedule tasks', stage: 'other', action: 'create' }, { name: 'Monitor workflows', stage: 'other', action: 'read' }, { name: 'Alert exceptions', stage: 'other', action: 'escalate' }],
-    recruitment: [{ name: 'Source candidates', stage: 'targeting', action: 'read' }, { name: 'Screen resumes', stage: 'qualification', action: 'classify' }, { name: 'Schedule interviews', stage: 'booking', action: 'create' }],
-    onboarding: [{ name: 'Welcome customers', stage: 'messaging', action: 'send' }, { name: 'Guide setup', stage: 'other', action: 'create' }, { name: 'Track completion', stage: 'other', action: 'read' }],
+  const submitOrder = async () => {
+    setSubmitting(true);
+    try {
+      const orderRes = await fetch('/api/orders', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: contractData.email, name: contractData.name,
+          company: contractData.company, request_type: 'agent_contract',
+          payload: { items: cart.map(c => ({ id: c.product.id, name: c.product.name, qty: c.qty, price: c.product.base_price })), sla: contractData.sla, total: cartTotal },
+        }),
+      });
+      const orderData = await orderRes.json();
+      if (orderData.success && orderData.customer_id) {
+        const contractRes = await fetch('/api/contracts', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_id: orderData.customer_id,
+            contract: { items: cart.map(c => ({ id: c.product.id, name: c.product.name, category: c.product.category, tier: c.product.tier, qty: c.qty, unit_price: c.product.base_price })), total_aud: cartTotal, sla: contractData.sla, company: contractData.company, state: 'requested' },
+          }),
+        });
+        const contractData2 = await contractRes.json();
+        setOrderResult({ order_id: orderData.order_id, contract_id: contractData2.contract_id, customer_id: orderData.customer_id });
+        setView('dashboard');
+      }
+    } catch(e) { console.error(e); }
+    setSubmitting(false);
   };
 
-  const tasks = (taskDefs[family] || taskDefs.operations).map((t, i) => ({
-    task_id: uid(), name: t.name, description: t.name, trigger: i === 0 ? 'on_schedule' : 'on_event',
-    action_type: t.action, channel: channels[i % channels.length] || 'email', stage: t.stage, guardrails: ['rate_limit', 'human_review'],
-  }));
-
-  const plan = w.plan || 'starter';
-  const prices: Record<string, number> = { starter: 4900, professional: 19900, enterprise: 49900 };
-
-  const contract: AgentContract = {
-    contract_id: id, version: '1.0.0', created_at: ts, updated_at: ts,
-    identity: { agent_name: `${family.replace('_', ' ')} Agent — ${w.company || 'New Business'}`, agent_type: family, template_family: family, description: w.goal || `Automated ${family.replace('_', ' ')} agent`, owner_business_id: uid(), owner_customer_id: '' },
-    objective: { primary_goal: w.goal || `Automate ${family.replace('_', ' ')}`, success_metrics: ['Completion rate', 'Accuracy', 'Response time'], kpis: { target_completion: '95%', accuracy: '98%' } },
-    operating_mode: { autonomy_level: 'supervised', escalation_threshold: 0.7, max_actions_per_hour: 50, operating_hours: { start: '09:00', end: '17:00', timezone: 'UTC' }, batch_size: 10 },
-    channels, tasks,
-    inputs: [{ name: 'customer_data', type: 'json', source: 'crm', required: true }, { name: 'config', type: 'json', source: 'contract', required: true }],
-    outputs: [{ name: 'action_log', type: 'event_stream', destination: 'log_store' }, { name: 'results', type: 'json', destination: 'dashboard' }],
-    controls: { guardrails: ['no_pii_exposure', 'max_daily_limit', 'human_review_required'], max_daily_actions: 200, require_human_approval: ['send_proposal', 'book_meeting'], blocked_actions: ['delete_data'], compliance_rules: ['gdpr_consent_required', 'opt_out_honored'], discount_ceiling_pct: 15, escalation_rules: [{ trigger: 'confidence_below_0.5', action: 'pause_and_escalate', notify: ['owner'] }, { trigger: 'negative_sentiment', action: 'escalate_to_human', notify: ['owner'] }] },
-    access_profile: {}, secrets_profile: { email_sender_ref: 'vault://email_sender', crm_connection_ref: 'vault://crm_api', model_profile_ref: 'vault://llm_api_key' },
-    observability: { log_level: 'info', alert_channels: ['email', 'dashboard'], retention_days: 90, dashboards: ['agent_performance', 'usage_metrics'] },
-    commercial_model: { plan_type: plan, billing_cycle: 'monthly', base_price_cents: prices[plan] || 4900, usage_rate_per_action_cents: 5, stripe_customer_id: '', stripe_subscription_id: '' },
-    deployment: { environment: 'sandbox', state: 'requested', region: 'us-east-1', scaling: { min_instances: 1, max_instances: 3 } },
-    acceptance_criteria: { test_scorecard_required: true, min_score: 75, red_team_required: false, hard_fail_conditions: ['logging_completeness_below_95', 'margin_breach', 'hallucination_rate_above_3pct', 'human_rescue_above_40pct'] },
-    audit: { created_by: 'system', approved_by: null, state_history: [{ from: null, to: 'requested', timestamp: ts, actor: 'customer', reason: 'New order' }], compliance_tags: ['soc2', 'gdpr'] },
-    dependency_packs: packs, readiness_score: 0, readiness_level: 'needs_setup',
-  };
-  return contract;
-}
-
-// ============================================================
-// VALIDATION
-// ============================================================
-function validateContract(c: AgentContract, connPacks: string[]): { valid: boolean; errors: string[]; warnings: string[]; score: number; level: ReadinessLevel } {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-  if (!c.identity?.agent_name) errors.push('Agent name required');
-  if (!c.identity?.owner_customer_id) errors.push('Customer ID required');
-  if (!c.channels?.length) errors.push('At least one channel required');
-  if (!c.tasks?.length) errors.push('At least one task required');
-  const missing = (c.dependency_packs || []).filter(p => !connPacks.includes(p));
-  if (missing.length) errors.push(`Missing packs: ${missing.join(', ')}`);
-  if (!c.commercial_model?.stripe_customer_id) errors.push('Stripe customer required');
-  if (!c.controls?.guardrails?.length) warnings.push('No guardrails configured');
-  if (!c.controls?.escalation_rules?.length) warnings.push('No escalation rules');
-
-  let score = 0;
-  const req = c.dependency_packs || [];
-  if (req.length === 0) score += 30; else score += Math.round((req.filter(p => connPacks.includes(p)).length / req.length) * 30);
-  if (Object.keys(c.access_profile || {}).length > 0 || req.length === 0) score += 20;
-  if (c.controls?.guardrails?.length) score += 10;
-  if (c.controls?.escalation_rules?.length) score += 10;
-  if (c.commercial_model?.stripe_customer_id) score += 15;
-  if (c.observability?.log_level) score += 8;
-  if (c.observability?.retention_days) score += 7;
-  const level: ReadinessLevel = score >= 80 ? 'ready' : score >= 50 ? 'needs_setup' : 'blocked';
-
-  return { valid: errors.length === 0, errors, warnings, score, level };
-}
-
-// ============================================================
-// STATE MACHINE
-// ============================================================
-const TRANSITIONS: Record<string, string[]> = {
-  requested: ['interpreted'], interpreted: ['compiled'], compiled: ['validated'],
-  validated: ['approved', 'compiled'], approved: ['staged'],
-  staged: ['live', 'paused'], live: ['paused', 'retired'], paused: ['live', 'retired'], retired: [],
-};
-
-function canTransition(from: string, to: string) { return TRANSITIONS[from]?.includes(to) ?? false; }
-
-function doTransition(contract: AgentContract, to: AgentState, actor: string, reason: string): boolean {
-  if (!canTransition(contract.deployment.state, to)) return false;
-  contract.audit.state_history.push({ from: contract.deployment.state, to, timestamp: now(), actor, reason });
-  contract.deployment.state = to;
-  contract.updated_at = now();
-  if (to === 'approved') contract.audit.approved_by = actor;
-  return true;
-}
-
-// ============================================================
-// WIZARD STATE
-// ============================================================
-interface WizardData {
-  step: number;
-  goal: string;
-  template: string | null;
-  channels: Channel[];
-  packs: string[];
-  freeText: string;
-  controls: { guardrails: string[]; max_daily_actions: number; require_human_approval: string[]; blocked_actions: string[]; discount_ceiling_pct: number; };
-  email: string;
-  name: string;
-  company: string;
-  plan: string;
-}
-
-const defaultWizard: WizardData = {
-  step: 1, goal: '', template: null, channels: [], packs: [], freeText: '',
-  controls: { guardrails: ['no_pii_exposure', 'max_daily_limit'], max_daily_actions: 200, require_human_approval: ['send_proposal'], blocked_actions: ['delete_data'], discount_ceiling_pct: 15 },
-  email: '', name: '', company: '', plan: 'starter',
-};
-
-// ============================================================
-// MAIN APP COMPONENT
-// ============================================================
-export default function App() {
-  const [page, setPage] = useState<'landing' | 'wizard' | 'dashboard' | 'admin'>('landing');
-  const [wizard, setWizard] = useState<WizardData>({ ...defaultWizard });
-  const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(null);
-  const [, forceUpdate] = useState(0);
-  const refresh = () => forceUpdate(n => n + 1);
-
-  // Simulated Stripe
-  const createStripeCustomer = (email: string, name: string) => {
-    return `cus_${uid().slice(0, 14)}`;
-  };
-
-  const submitOrder = () => {
-    // Create or find customer
-    let customer = DB.customers.find(c => c.email === wizard.email);
-    if (!customer) {
-      const stripeId = createStripeCustomer(wizard.email, wizard.name);
-      customer = { customer_id: uid(), email: wizard.email, name: wizard.name, company: wizard.company, stripe_customer_id: stripeId, created_at: now() };
-      DB.customers.push(customer);
-      audit('system', 'create_customer', customer.customer_id, `Created: ${wizard.email}`);
-    }
-    setCurrentCustomer(customer);
-
-    // Create order
-    const order: AgentOrder = { order_id: uid(), customer_id: customer.customer_id, request_type: wizard.template ? 'template' : wizard.freeText ? 'freetext' : 'wizard', request_payload: { ...wizard }, contract_id: null, status: 'pending', created_at: now() };
-    DB.orders.push(order);
-    audit('system', 'create_order', order.order_id, `Order: ${order.request_type}`);
-
-    // Compile contract
-    const contract = compileContract(wizard);
-    contract.identity.owner_customer_id = customer.customer_id;
-    contract.commercial_model.stripe_customer_id = customer.stripe_customer_id;
-
-    // Auto-transition through states
-    doTransition(contract, 'interpreted', 'system', 'Intent interpreted');
-    doTransition(contract, 'compiled', 'system', 'Contract compiled');
-
-    // Validate
-    const connPacks = DB.connectedPacks[customer.customer_id] || [];
-    const val = validateContract(contract, connPacks);
-    contract.readiness_score = val.score;
-    contract.readiness_level = val.level;
-    if (val.valid) doTransition(contract, 'validated', 'system', 'Validation passed');
-
-    DB.contracts.push(contract);
-    order.contract_id = contract.contract_id;
-    order.status = val.valid ? 'validated' : 'compiled';
-    audit('system', 'compile_contract', contract.contract_id, `Score: ${contract.readiness_score}`);
-
-    // Create instance
-    const instance: AgentInstance = { instance_id: uid(), contract_id: contract.contract_id, customer_id: customer.customer_id, state: 'staged', environment: 'sandbox', created_at: now(), updated_at: now() };
-    DB.instances.push(instance);
-
-    // Seed usage event
-    DB.usage.push({ id: uid(), contract_id: contract.contract_id, timestamp: now(), actions_count: 0, token_cost: 0, tool_cost: 0 });
-
-    audit('system', 'stage_instance', instance.instance_id, `Staged for ${contract.contract_id}`);
-    refresh();
-    setPage('dashboard');
-    setWizard({ ...defaultWizard });
-  };
-
-  // ============================================================
-  // RENDER
-  // ============================================================
+  /* ─── RENDER ────────────────────────────────────────── */
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-gray-950 text-white">
       {/* NAV */}
-      <nav className="glass sticky top-0 z-50 border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <button onClick={() => setPage('landing')} className="flex items-center gap-2">
+      <nav className="fixed top-0 w-full z-50 bg-gray-950/90 backdrop-blur border-b border-white/5">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          <button onClick={() => { setView('landing'); setSelectedProduct(null); }} className="flex items-center gap-3">
             <img src="/droid-head.webp" alt="WF" className="w-8 h-8 rounded-lg" />
-            <span className="font-bold text-lg">WorkFamilyAI</span>
+            <span className="text-lg font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">WorkFamilyAI</span>
           </button>
-          <div className="flex items-center gap-4">
-            <button onClick={() => setPage('landing')} className={`text-sm ${page === 'landing' ? 'text-wf-accent' : 'text-gray-400 hover:text-white'}`}>Home</button>
-            <button onClick={() => { setWizard({ ...defaultWizard }); setPage('wizard'); }} className={`text-sm ${page === 'wizard' ? 'text-wf-accent' : 'text-gray-400 hover:text-white'}`}>New Agent</button>
-            <button onClick={() => setPage('dashboard')} className={`text-sm ${page === 'dashboard' ? 'text-wf-accent' : 'text-gray-400 hover:text-white'}`}>Dashboard</button>
-            <button onClick={() => setPage('admin')} className={`text-sm ${page === 'admin' ? 'text-wf-accent' : 'text-gray-400 hover:text-white'}`}>Admin</button>
-            <a href="/buddy" className="text-sm text-gray-400 hover:text-white">Buddy</a>
+          <div className="flex items-center gap-6">
+            <button onClick={() => setView('catalog')} className={`text-sm font-medium transition ${view==='catalog' ? 'text-cyan-400' : 'text-gray-400 hover:text-white'}`}>Catalog</button>
+            <button onClick={() => setView('configure')} className={`text-sm font-medium transition ${view==='configure' ? 'text-cyan-400' : 'text-gray-400 hover:text-white'}`}>Configure</button>
+            <a href="/buddy" className="text-sm font-medium text-gray-400 hover:text-white transition">Buddy</a>
+            <button onClick={() => setView('cart')} className="relative text-gray-400 hover:text-white transition">
+              <Icons.Cart />
+              {cart.length > 0 && <span className="absolute -top-2 -right-2 bg-cyan-500 text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">{cart.length}</span>}
+            </button>
           </div>
         </div>
       </nav>
 
-      {page === 'landing' && <Landing onStart={() => { setWizard({ ...defaultWizard }); setPage('wizard'); }} />}
-      {page === 'wizard' && <Wizard data={wizard} onChange={setWizard} onSubmit={submitOrder} />}
-      {page === 'dashboard' && <Dashboard customer={currentCustomer} refresh={refresh} />}
-      {page === 'admin' && <Admin refresh={refresh} />}
-    </div>
-  );
-}
-
-// ============================================================
-// LANDING PAGE
-// ============================================================
-function Landing({ onStart }: { onStart: () => void }) {
-  return (
-    <div>
-      {/* Hero */}
-      <section className="max-w-7xl mx-auto px-4 py-20">
-        <div className="flex flex-col lg:flex-row items-center gap-12">
-          <div className="flex-1 text-center lg:text-left">
-            <div className="inline-block px-4 py-1 rounded-full bg-wf-accent/20 text-wf-accent text-sm font-medium mb-6">One-Click AI Augmentation</div>
-            <h1 className="text-5xl md:text-6xl font-bold mb-6 leading-tight">
-              Deploy AI Agents<br /><span className="text-wf-accent">In Minutes, Not Months</span>
-            </h1>
-            <p className="text-xl text-gray-400 max-w-2xl mb-10">
-              Lead generation, customer service, sales, finance, operations — choose a template, customize your controls, and go live. No code required.
-            </p>
-            <div className="flex gap-4 justify-center lg:justify-start">
-              <button onClick={onStart} className="btn-primary text-lg px-8 py-4">Get Started →</button>
-              <a href="/buddy" className="btn-secondary text-lg px-8 py-4 inline-block">Meet the Team →</a>
-            </div>
-          </div>
-          <div className="flex-1 max-w-lg">
-            <img src="/neural-ennead-family.png" alt="Neural Ennead AI Family" className="w-full rounded-2xl shadow-2xl shadow-wf-accent/10 border border-gray-800" />
-            <p className="text-center text-gray-500 text-xs mt-3">1,000 AI agents across WorkFamilyAI · Tech4Humanity · Neural Ennead</p>
-          </div>
-        </div>
-      </section>
-
-      {/* Starter Packs */}
-      <section className="max-w-7xl mx-auto px-4 py-16">
-        <h2 className="text-3xl font-bold text-center mb-12">Starter Packs</h2>
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {STARTER_PACKS.map(p => (
-            <div key={p.id} className="card hover:border-wf-accent/40 transition-all cursor-pointer" onClick={onStart}>
-              <h3 className="font-bold text-lg mb-2">{p.name}</h3>
-              <p className="text-gray-400 text-sm mb-4">{p.desc}</p>
-              <div className="flex flex-wrap gap-1 mb-4">
-                {p.channels.map(ch => <span key={ch} className="badge badge-info">{ch}</span>)}
-              </div>
-              <div className="text-2xl font-bold text-wf-accent">${p.price}<span className="text-sm text-gray-400">/mo</span></div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Templates */}
-      <section className="max-w-7xl mx-auto px-4 py-16">
-        <h2 className="text-3xl font-bold text-center mb-12">Agent Templates</h2>
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {TEMPLATES.map(t => (
-            <div key={t.id} className="card hover:border-wf-accent/40 transition-all cursor-pointer" onClick={onStart}>
-              <div className="text-3xl mb-3">{t.icon}</div>
-              <span className="badge badge-purple mb-2">{t.cat}</span>
-              <h3 className="font-bold text-lg mb-1">{t.name}</h3>
-              <p className="text-gray-400 text-sm">{t.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* How it works */}
-      <section className="max-w-5xl mx-auto px-4 py-16">
-        <h2 className="text-3xl font-bold text-center mb-12">How It Works</h2>
-        <div className="grid md:grid-cols-4 gap-8">
-          {[
-            { n: '1', title: 'Choose', desc: 'Pick a template, describe your need, or upload requirements' },
-            { n: '2', title: 'Configure', desc: 'Set channels, guardrails, and connect dependency packs' },
-            { n: '3', title: 'Preview', desc: 'Review the full agent contract and readiness score' },
-            { n: '4', title: 'Deploy', desc: 'Go live with Stripe billing, logging, and real-time dashboard' },
-          ].map(s => (
-            <div key={s.n} className="text-center">
-              <div className="w-12 h-12 rounded-full bg-wf-accent flex items-center justify-center text-xl font-bold mx-auto mb-4">{s.n}</div>
-              <h3 className="font-bold mb-2">{s.title}</h3>
-              <p className="text-gray-400 text-sm">{s.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      <main className="pt-16">
+        {view === 'landing' && <LandingView onBrowse={() => setView('catalog')} onConfigure={() => setView('configure')} categories={categories} fetchCatalog={fetchCatalog} setSelCat={setSelCat} setView={setView} />}
+        {view === 'catalog' && <CatalogView products={products} categories={categories} loading={loading} search={search} setSearch={setSearch} selCat={selCat} setSelCat={setSelCat} selTier={selTier} setSelTier={setSelTier} fetchCatalog={fetchCatalog} addToCart={addToCart} cart={cart} selectedProduct={selectedProduct} setSelectedProduct={setSelectedProduct} />}
+        {view === 'cart' && <CartView cart={cart} removeFromCart={removeFromCart} cartTotal={cartTotal} onCheckout={() => { setWizardStep(0); setView('configure'); }} />}
+        {view === 'configure' && <ConfigureView cart={cart} cartTotal={cartTotal} wizardStep={wizardStep} setWizardStep={setWizardStep} contractData={contractData} setContractData={setContractData} submitting={submitting} submitOrder={submitOrder} onBrowse={() => setView('catalog')} />}
+        {view === 'dashboard' && <DashboardView orderResult={orderResult} cart={cart} contractData={contractData} cartTotal={cartTotal} />}
+      </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-800 py-8 text-center text-gray-500 text-sm">
-        WorkFamilyAI © {new Date().getFullYear()} — One-Click AI Augmentation Platform
+      <footer className="border-t border-white/5 py-12 px-6">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex items-center gap-3">
+            <img src="/droid-head.webp" alt="" className="w-6 h-6 rounded" />
+            <span className="text-sm text-gray-500">© 2026 WorkFamilyAI · Tech4Humanity · Neural Ennead</span>
+          </div>
+          <div className="flex gap-6 text-sm text-gray-500">
+            <span>238 Products</span><span>·</span><span>25 Categories</span><span>·</span><span>1,000+ AI Agents</span>
+          </div>
+        </div>
       </footer>
     </div>
   );
 }
 
-// ============================================================
-// WIZARD (7 Steps)
-// ============================================================
-function Wizard({ data, onChange, onSubmit }: { data: WizardData; onChange: (d: WizardData) => void; onSubmit: () => void }) {
-  const update = (partial: Partial<WizardData>) => onChange({ ...data, ...partial });
-  const steps = ['Goal', 'Augmentation', 'Channels', 'Controls', 'Preview', 'Checkout', 'Deploy'];
+/* ═══════════════════════════════════════════════════════ */
+/*  LANDING VIEW                                          */
+/* ═══════════════════════════════════════════════════════ */
+function LandingView({ onBrowse, onConfigure, categories, fetchCatalog, setSelCat, setView }: any) {
+  useEffect(() => { if (categories.length === 0) fetchCatalog(); }, []);
 
-  const canNext = () => {
-    if (data.step === 1) return data.goal.length > 3 || data.freeText.length > 3;
-    if (data.step === 2) return !!data.template;
-    if (data.step === 3) return data.channels.length > 0;
-    if (data.step === 6) return data.email && data.name && data.company;
-    return true;
-  };
-
-  const toggleChannel = (ch: Channel) => {
-    const channels = data.channels.includes(ch) ? data.channels.filter(c => c !== ch) : [...data.channels, ch];
-    update({ channels });
-  };
-
-  const togglePack = (p: string) => {
-    const packs = data.packs.includes(p) ? data.packs.filter(x => x !== p) : [...data.packs, p];
-    update({ packs });
-  };
-
-  // Auto-compute packs when template selected
-  useEffect(() => {
-    if (data.template && data.packs.length === 0) {
-      update({ packs: PACK_MAP[data.template] || ['email_pack'] });
-    }
-  }, [data.template]);
-
-  // Preview contract
-  const previewContract = data.step >= 5 ? compileContract(data) : null;
-  const previewValidation = previewContract ? validateContract(previewContract, data.packs) : null;
+  const aiCategories = (categories as CategoryStat[]).filter(c => !['Product','Service','Hardware','Support','Consulting','Training','Surcharge','Package Extra','Bundle'].includes(c.category));
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-10">
-      {/* Step indicators */}
-      <div className="flex items-center justify-center gap-2 mb-12">
-        {steps.map((s, i) => (
-          <div key={s} className="flex items-center gap-2">
-            <div className={`step-indicator ${i + 1 < data.step ? 'step-done' : i + 1 === data.step ? 'step-active' : 'step-pending'}`}>
-              {i + 1 < data.step ? '✓' : i + 1}
-            </div>
-            <span className={`text-xs hidden md:inline ${i + 1 === data.step ? 'text-white' : 'text-gray-500'}`}>{s}</span>
-            {i < steps.length - 1 && <div className="w-8 h-px bg-gray-700" />}
-          </div>
-        ))}
-      </div>
-
-      <div className="card">
-        {/* Step 1: Goal */}
-        {data.step === 1 && (
-          <div>
-            <h2 className="text-2xl font-bold mb-2">What do you want to improve?</h2>
-            <p className="text-gray-400 mb-6">Describe your business goal or choose a template to get started.</p>
-
-            <div className="mb-6">
-              <label className="block text-sm font-medium mb-2">Describe in your own words</label>
-              <textarea className="input-field h-32" placeholder="e.g., I want to automate my lead generation on LinkedIn and email..." value={data.freeText} onChange={e => update({ freeText: e.target.value, goal: e.target.value })} />
-              {data.freeText.length > 10 && (
-                <div className="mt-3 p-3 rounded-lg bg-wf-accent/10 border border-wf-accent/20">
-                  <p className="text-sm text-wf-accent font-medium">AI Interpretation:</p>
-                  {(() => { const i = interpretText(data.freeText); return (
-                    <div className="text-sm text-gray-300 mt-1">
-                      <p>Template: <span className="text-white font-medium">{TEMPLATES.find(t => t.id === i.family)?.name || i.family}</span> (confidence: {Math.round(i.confidence * 100)}%)</p>
-                      <p>Channels: {i.channels.join(', ')}</p>
-                      <p>Friction score: {Math.round(i.friction * 100)}%</p>
-                    </div>
-                  ); })()}
-                </div>
-              )}
-            </div>
-
-            <div className="border-t border-gray-700 pt-6">
-              <label className="block text-sm font-medium mb-2">Or set a specific goal</label>
-              <input className="input-field" placeholder="e.g., Generate 50 qualified leads per week" value={data.goal} onChange={e => update({ goal: e.target.value })} />
-            </div>
-          </div>
-        )}
-
-        {/* Step 2: Choose augmentation */}
-        {data.step === 2 && (
-          <div>
-            <h2 className="text-2xl font-bold mb-2">Choose your augmentation</h2>
-            <p className="text-gray-400 mb-6">Select an agent template or starter pack.</p>
-
-            <h3 className="font-semibold text-sm text-gray-400 uppercase mb-3">Starter Packs</h3>
-            <div className="grid md:grid-cols-2 gap-4 mb-8">
-              {STARTER_PACKS.map(p => (
-                <div key={p.id} onClick={() => update({ template: p.templates[0], packs: p.packs, channels: p.channels, plan: 'starter' })}
-                  className={`p-4 rounded-lg border cursor-pointer transition-all ${data.template === p.templates[0] ? 'border-wf-accent bg-wf-accent/10' : 'border-gray-700 hover:border-gray-500'}`}>
-                  <h4 className="font-bold">{p.name}</h4>
-                  <p className="text-sm text-gray-400">{p.desc}</p>
-                  <p className="text-wf-accent font-bold mt-2">${p.price}/mo</p>
-                </div>
-              ))}
-            </div>
-
-            <h3 className="font-semibold text-sm text-gray-400 uppercase mb-3">Individual Templates</h3>
-            <div className="grid md:grid-cols-3 gap-4">
-              {TEMPLATES.map(t => (
-                <div key={t.id} onClick={() => update({ template: t.id, packs: PACK_MAP[t.id] || [] })}
-                  className={`p-4 rounded-lg border cursor-pointer transition-all ${data.template === t.id ? 'border-wf-accent bg-wf-accent/10' : 'border-gray-700 hover:border-gray-500'}`}>
-                  <div className="text-2xl mb-2">{t.icon}</div>
-                  <h4 className="font-bold text-sm">{t.name}</h4>
-                  <p className="text-xs text-gray-400">{t.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Channels & Packs */}
-        {data.step === 3 && (
-          <div>
-            <h2 className="text-2xl font-bold mb-2">Connect tools & channels</h2>
-            <p className="text-gray-400 mb-6">Select communication channels and dependency packs.</p>
-
-            <h3 className="font-semibold text-sm text-gray-400 uppercase mb-3">Channels</h3>
-            <div className="flex flex-wrap gap-3 mb-8">
-              {(['email', 'linkedin', 'phone', 'crm', 'webchat', 'internal'] as Channel[]).map(ch => (
-                <button key={ch} onClick={() => toggleChannel(ch)}
-                  className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${data.channels.includes(ch) ? 'border-wf-accent bg-wf-accent/20 text-wf-accent' : 'border-gray-700 text-gray-400 hover:border-gray-500'}`}>
-                  {ch}
+    <>
+      {/* Hero */}
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-cyan-950/40 via-gray-950 to-blue-950/40" />
+        <div className="absolute top-20 left-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-20 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" />
+        <div className="relative max-w-7xl mx-auto px-6 py-32 md:py-40">
+          <div className="grid md:grid-cols-2 gap-16 items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-sm font-medium mb-8">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" /> Live — 238 Products · 1,000 Agents
+              </div>
+              <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
+                One-Click<br />
+                <span className="bg-gradient-to-r from-cyan-400 via-blue-400 to-purple-400 bg-clip-text text-transparent">AI Augmentation</span>
+              </h1>
+              <p className="text-xl text-gray-400 mb-10 leading-relaxed max-w-lg">
+                Browse. Select. Contract. Deploy. The only platform that accepts and executes AI agent contracts — from $9/month to enterprise scale.
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <button onClick={onBrowse} className="px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold text-lg hover:shadow-lg hover:shadow-cyan-500/25 transition-all">
+                  Browse Catalog <Icons.Arrow />
                 </button>
-              ))}
+                <button onClick={onConfigure} className="px-8 py-4 border border-white/10 rounded-xl font-semibold text-lg hover:bg-white/5 transition">
+                  Build Contract
+                </button>
+              </div>
             </div>
-
-            <h3 className="font-semibold text-sm text-gray-400 uppercase mb-3">Dependency Packs</h3>
-            <div className="grid md:grid-cols-2 gap-3">
-              {Object.entries(PACKS).map(([id, pack]) => (
-                <div key={id} onClick={() => togglePack(id)}
-                  className={`p-3 rounded-lg border cursor-pointer transition-all ${data.packs.includes(id) ? 'border-green-500 bg-green-900/20' : 'border-gray-700 hover:border-gray-500'}`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-medium text-sm">{pack.name}</h4>
-                      <p className="text-xs text-gray-400">{pack.desc}</p>
-                    </div>
-                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${data.packs.includes(id) ? 'border-green-500 bg-green-500 text-white' : 'border-gray-600'}`}>
-                      {data.packs.includes(id) && '✓'}
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="hidden md:block">
+              <img src="/neural-ennead-family.png" alt="Neural Ennead" className="w-full rounded-2xl shadow-2xl shadow-cyan-500/10 border border-white/5" />
             </div>
           </div>
-        )}
+        </div>
+      </section>
 
-        {/* Step 4: Controls */}
-        {data.step === 4 && (
-          <div>
-            <h2 className="text-2xl font-bold mb-2">Customize controls</h2>
-            <p className="text-gray-400 mb-6">Set guardrails, limits, and escalation rules.</p>
-
-            <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium mb-2">Max daily actions</label>
-                <input type="number" className="input-field w-48" value={data.controls.max_daily_actions} onChange={e => update({ controls: { ...data.controls, max_daily_actions: parseInt(e.target.value) || 200 } })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Discount ceiling (%)</label>
-                <input type="number" className="input-field w-48" value={data.controls.discount_ceiling_pct} onChange={e => update({ controls: { ...data.controls, discount_ceiling_pct: parseInt(e.target.value) || 15 } })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Guardrails</label>
-                <div className="flex flex-wrap gap-2">
-                  {['no_pii_exposure', 'max_daily_limit', 'human_review_required', 'gdpr_consent', 'rate_limiting', 'sentiment_check'].map(g => (
-                    <button key={g} onClick={() => {
-                      const gr = data.controls.guardrails.includes(g) ? data.controls.guardrails.filter(x => x !== g) : [...data.controls.guardrails, g];
-                      update({ controls: { ...data.controls, guardrails: gr } });
-                    }} className={`px-3 py-1 rounded-full text-xs font-medium border ${data.controls.guardrails.includes(g) ? 'border-green-500 bg-green-900/30 text-green-300' : 'border-gray-600 text-gray-400'}`}>
-                      {g.replace(/_/g, ' ')}
-                    </button>
-                  ))}
+      {/* How it works */}
+      <section className="py-24 px-6 border-t border-white/5">
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-3xl font-bold text-center mb-4">How It Works</h2>
+          <p className="text-gray-400 text-center mb-16 max-w-2xl mx-auto">Four steps from browsing to deployed AI agents working for your business.</p>
+          <div className="grid md:grid-cols-4 gap-8">
+            {[
+              { n: '01', title: 'Browse', desc: '238 AI products across 25 categories. Filter by need, budget, or industry.', icon: <Icons.Search /> },
+              { n: '02', title: 'Select & Configure', desc: 'Add agents to your cart. Pick SLA tier. Customize for your workflow.', icon: <Icons.Bot /> },
+              { n: '03', title: 'Contract & Pay', desc: 'We compile your contract, validate it, and process payment via Stripe.', icon: <Icons.Shield /> },
+              { n: '04', title: 'Deploy & Support', desc: 'Agents go live in your environment. Buddy support included.', icon: <Icons.Zap /> },
+            ].map((s, i) => (
+              <div key={i} className="relative group">
+                <div className="absolute -top-3 -left-3 text-6xl font-black text-white/[0.03] group-hover:text-cyan-500/10 transition">{s.n}</div>
+                <div className="relative bg-white/[0.02] border border-white/5 rounded-2xl p-8 hover:border-cyan-500/20 transition-all hover:bg-white/[0.04]">
+                  <div className="w-12 h-12 rounded-xl bg-cyan-500/10 flex items-center justify-center text-cyan-400 mb-6">{s.icon}</div>
+                  <h3 className="text-xl font-bold mb-3">{s.title}</h3>
+                  <p className="text-gray-400 leading-relaxed">{s.desc}</p>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Require human approval for</label>
-                <div className="flex flex-wrap gap-2">
-                  {['send_proposal', 'book_meeting', 'send_email', 'escalate_deal', 'modify_pricing'].map(a => (
-                    <button key={a} onClick={() => {
-                      const ar = data.controls.require_human_approval.includes(a) ? data.controls.require_human_approval.filter(x => x !== a) : [...data.controls.require_human_approval, a];
-                      update({ controls: { ...data.controls, require_human_approval: ar } });
-                    }} className={`px-3 py-1 rounded-full text-xs font-medium border ${data.controls.require_human_approval.includes(a) ? 'border-yellow-500 bg-yellow-900/30 text-yellow-300' : 'border-gray-600 text-gray-400'}`}>
-                      {a.replace(/_/g, ' ')}
-                    </button>
-                  ))}
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* AI Categories Grid */}
+      <section className="py-24 px-6 bg-gray-900/50">
+        <div className="max-w-7xl mx-auto">
+          <h2 className="text-3xl font-bold text-center mb-4">AI Agent Categories</h2>
+          <p className="text-gray-400 text-center mb-16 max-w-2xl mx-auto">Enterprise-grade AI across every business function. Real products, real prices, real contracts.</p>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {aiCategories.map((c: CategoryStat) => (
+              <button key={c.category} onClick={() => { setSelCat(c.category); setView('catalog'); }}
+                className="group text-left bg-white/[0.02] border border-white/5 rounded-xl p-6 hover:border-cyan-500/30 hover:bg-white/[0.04] transition-all">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-2xl">{catIcons[c.category] || '🤖'}</span>
+                  <span className="font-semibold group-hover:text-cyan-400 transition">{c.category}</span>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Step 5: Preview */}
-        {data.step === 5 && previewContract && previewValidation && (
-          <div>
-            <h2 className="text-2xl font-bold mb-2">Preview contract</h2>
-            <div className="flex items-center gap-4 mb-6">
-              <ReadinessBadge score={previewValidation.score} level={previewValidation.level} />
-              <span className="text-sm text-gray-400">Readiness: {previewValidation.score}%</span>
-            </div>
-
-            {previewValidation.errors.length > 0 && (
-              <div className="mb-4 p-3 rounded-lg bg-red-900/20 border border-red-800">
-                <p className="font-medium text-red-300 text-sm mb-1">Validation Issues</p>
-                {previewValidation.errors.map((e, i) => <p key={i} className="text-xs text-red-400">• {e}</p>)}
-              </div>
-            )}
-            {previewValidation.warnings.length > 0 && (
-              <div className="mb-4 p-3 rounded-lg bg-yellow-900/20 border border-yellow-800">
-                <p className="font-medium text-yellow-300 text-sm mb-1">Warnings</p>
-                {previewValidation.warnings.map((w, i) => <p key={i} className="text-xs text-yellow-400">• {w}</p>)}
-              </div>
-            )}
-
-            <div className="bg-wf-primary rounded-lg p-4 max-h-96 overflow-auto">
-              <pre className="text-xs text-gray-300 whitespace-pre-wrap">{JSON.stringify(previewContract, null, 2)}</pre>
-            </div>
-          </div>
-        )}
-
-        {/* Step 6: Checkout */}
-        {data.step === 6 && (
-          <div>
-            <h2 className="text-2xl font-bold mb-2">Checkout</h2>
-            <p className="text-gray-400 mb-6">Enter your details to create your account and start billing.</p>
-
-            <div className="space-y-4 max-w-md">
-              <div>
-                <label className="block text-sm font-medium mb-1">Email</label>
-                <input className="input-field" type="email" placeholder="you@company.com" value={data.email} onChange={e => update({ email: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Full name</label>
-                <input className="input-field" placeholder="Jane Smith" value={data.name} onChange={e => update({ name: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Company</label>
-                <input className="input-field" placeholder="Acme Corp" value={data.company} onChange={e => update({ company: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Plan</label>
-                <div className="grid grid-cols-3 gap-3">
-                  {[{ id: 'starter', name: 'Starter', price: '$49' }, { id: 'professional', name: 'Professional', price: '$199' }, { id: 'enterprise', name: 'Enterprise', price: '$499' }].map(p => (
-                    <button key={p.id} onClick={() => update({ plan: p.id })}
-                      className={`p-3 rounded-lg border text-center ${data.plan === p.id ? 'border-wf-accent bg-wf-accent/10' : 'border-gray-700'}`}>
-                      <div className="font-bold text-sm">{p.name}</div>
-                      <div className="text-wf-accent font-bold">{p.price}<span className="text-xs text-gray-400">/mo</span></div>
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between text-sm text-gray-500">
+                  <span>{c.cnt} product{c.cnt > 1 ? 's' : ''}</span>
+                  <span>{formatPrice(c.min_price)} – {formatPrice(c.max_price)}</span>
                 </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Differentiator */}
+      <section className="py-24 px-6 border-t border-white/5">
+        <div className="max-w-5xl mx-auto text-center">
+          <h2 className="text-3xl font-bold mb-6">The Only Platform That Executes</h2>
+          <p className="text-xl text-gray-400 mb-16 max-w-3xl mx-auto">Other sites showcase. We contract. Your agents are compiled, validated, and deployed through a 9-state machine — from <code className="text-cyan-400">requested</code> to <code className="text-cyan-400">live</code>.</p>
+          <div className="flex flex-wrap justify-center gap-3">
+            {['requested','interpreted','compiled','validated','approved','staged','live','paused','retired'].map((s, i) => (
+              <div key={s} className="flex items-center gap-2">
+                <span className={`px-4 py-2 rounded-lg text-sm font-mono font-medium ${i < 7 ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'bg-gray-800 text-gray-500 border border-gray-700'}`}>{s}</span>
+                {i < 8 && <span className="text-gray-600">→</span>}
               </div>
-            </div>
-
-            <div className="mt-6 p-4 rounded-lg bg-wf-accent/10 border border-wf-accent/20">
-              <p className="text-sm"><span className="text-wf-accent font-medium">Stripe integration:</span> A Stripe customer will be created automatically. Payment method attachment and subscription setup handled at checkout.</p>
-            </div>
+            ))}
           </div>
-        )}
+        </div>
+      </section>
 
-        {/* Step 7: Deploy */}
-        {data.step === 7 && (
-          <div className="text-center py-8">
-            <div className="text-5xl mb-4">🚀</div>
-            <h2 className="text-2xl font-bold mb-2">Ready to deploy</h2>
-            <p className="text-gray-400 mb-8">Your agent will be staged in sandbox mode. After admin approval, it will go live.</p>
-            <div className="max-w-md mx-auto text-left mb-8">
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm"><span className="text-gray-400">Template</span><span>{TEMPLATES.find(t => t.id === data.template)?.name || 'Custom'}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-400">Channels</span><span>{data.channels.join(', ')}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-400">Packs</span><span>{data.packs.length}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-400">Plan</span><span className="capitalize">{data.plan}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-400">Customer</span><span>{data.email}</span></div>
+      {/* Cross-business */}
+      <section className="py-24 px-6 bg-gray-900/50">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              { name: 'WorkFamilyAI', desc: 'Agent marketplace & contract execution', color: 'from-cyan-500 to-blue-500' },
+              { name: 'Tech4Humanity', desc: 'Research artefacts & sweet spot assessments', color: 'from-blue-500 to-purple-500' },
+              { name: 'Neural Ennead', desc: '1,000 specialist agents across 10 pillars', color: 'from-purple-500 to-pink-500' },
+            ].map(b => (
+              <div key={b.name} className="bg-white/[0.02] border border-white/5 rounded-2xl p-8 hover:border-white/10 transition">
+                <div className={`w-12 h-1 rounded-full bg-gradient-to-r ${b.color} mb-6`} />
+                <h3 className="text-xl font-bold mb-3">{b.name}</h3>
+                <p className="text-gray-400">{b.desc}</p>
               </div>
-            </div>
-            <button onClick={onSubmit} className="btn-primary text-lg px-12 py-4">Deploy Agent →</button>
+            ))}
           </div>
-        )}
+        </div>
+      </section>
 
-        {/* Navigation */}
-        {data.step < 7 && (
-          <div className="flex justify-between mt-8 pt-6 border-t border-gray-700">
-            <button onClick={() => update({ step: Math.max(1, data.step - 1) })} disabled={data.step === 1}
-              className="px-6 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-white disabled:opacity-30">
-              ← Back
-            </button>
-            <button onClick={() => update({ step: data.step + 1 })} disabled={!canNext()}
-              className="btn-primary disabled:opacity-30">
-              Next →
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+      {/* CTA */}
+      <section className="py-24 px-6 border-t border-white/5">
+        <div className="max-w-3xl mx-auto text-center">
+          <h2 className="text-4xl font-bold mb-6">Ready to Augment?</h2>
+          <p className="text-xl text-gray-400 mb-10">From a $9/month personal scaffold to $175K enterprise deployments. Start now.</p>
+          <button onClick={onBrowse} className="px-10 py-5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold text-lg hover:shadow-lg hover:shadow-cyan-500/25 transition-all">
+            Explore the Full Catalog <Icons.Arrow />
+          </button>
+        </div>
+      </section>
+    </>
   );
 }
 
-// ============================================================
-// CUSTOMER DASHBOARD
-// ============================================================
-function Dashboard({ customer, refresh }: { customer: Customer | null; refresh: () => void }) {
-  const customerContracts = customer ? DB.contracts.filter(c => c.identity.owner_customer_id === customer.customer_id) : DB.contracts;
-  const customerInstances = customer ? DB.instances.filter(i => i.customer_id === customer.customer_id) : DB.instances;
-  const [selectedContract, setSelectedContract] = useState<AgentContract | null>(null);
+/* ═══════════════════════════════════════════════════════ */
+/*  CATALOG VIEW                                          */
+/* ═══════════════════════════════════════════════════════ */
+function CatalogView({ products, categories, loading, search, setSearch, selCat, setSelCat, selTier, setSelTier, fetchCatalog, addToCart, cart, selectedProduct, setSelectedProduct }: any) {
+  const doSearch = () => fetchCatalog(selCat, selTier, search);
 
-  const togglePause = (instance: AgentInstance) => {
-    const contract = DB.contracts.find(c => c.contract_id === instance.contract_id);
-    if (!contract) return;
-    const newState: AgentState = instance.state === 'live' ? 'paused' : instance.state === 'paused' ? 'live' : instance.state;
-    if (newState !== instance.state) {
-      instance.state = newState;
-      instance.updated_at = now();
-      doTransition(contract, newState, 'customer', newState === 'paused' ? 'Paused by customer' : 'Resumed by customer');
-      refresh();
-    }
-  };
-
-  if (DB.contracts.length === 0) {
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-20 text-center">
-        <div className="text-5xl mb-4">📋</div>
-        <h2 className="text-2xl font-bold mb-2">No agents yet</h2>
-        <p className="text-gray-400">Deploy your first AI agent to see it here.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-7xl mx-auto px-4 py-10">
-      <h1 className="text-3xl font-bold mb-8">Customer Dashboard</h1>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Active Agents" value={customerInstances.filter(i => i.state === 'live').length} color="text-green-400" />
-        <StatCard label="Staged" value={customerInstances.filter(i => i.state === 'staged').length} color="text-blue-400" />
-        <StatCard label="Paused" value={customerInstances.filter(i => i.state === 'paused').length} color="text-yellow-400" />
-        <StatCard label="Avg Readiness" value={customerContracts.length ? Math.round(customerContracts.reduce((s, c) => s + c.readiness_score, 0) / customerContracts.length) + '%' : '—'} color="text-wf-accent" />
-      </div>
-
-      {/* Agents list */}
-      <div className="space-y-4">
-        {customerContracts.map(contract => {
-          const instance = customerInstances.find(i => i.contract_id === contract.contract_id);
-          const usage = DB.usage.filter(u => u.contract_id === contract.contract_id);
-          return (
-            <div key={contract.contract_id} className="card">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-3 mb-1">
-                    <h3 className="font-bold text-lg">{contract.identity.agent_name}</h3>
-                    <StateBadge state={instance?.state || contract.deployment.state} />
-                    <ReadinessBadge score={contract.readiness_score} level={contract.readiness_level} />
-                  </div>
-                  <p className="text-gray-400 text-sm mb-3">{contract.objective.primary_goal}</p>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {contract.channels.map(ch => <span key={ch} className="badge badge-info">{ch}</span>)}
-                    <span className="badge badge-purple">{contract.commercial_model.plan_type}</span>
-                  </div>
-                  <div className="flex gap-4 text-xs text-gray-500">
-                    <span>Tasks: {contract.tasks.length}</span>
-                    <span>Packs: {contract.dependency_packs.length}</span>
-                    <span>Created: {new Date(contract.created_at).toLocaleDateString()}</span>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {instance && (instance.state === 'live' || instance.state === 'paused') && (
-                    <button onClick={() => togglePause(instance)} className={`px-3 py-1 rounded text-xs font-medium ${instance.state === 'live' ? 'bg-yellow-900/50 text-yellow-300' : 'bg-green-900/50 text-green-300'}`}>
-                      {instance.state === 'live' ? 'Pause' : 'Resume'}
-                    </button>
-                  )}
-                  <button onClick={() => setSelectedContract(selectedContract?.contract_id === contract.contract_id ? null : contract)} className="px-3 py-1 rounded text-xs font-medium bg-gray-700 text-gray-300">
-                    {selectedContract?.contract_id === contract.contract_id ? 'Hide' : 'Details'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Dependency packs status */}
-              {contract.dependency_packs.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-700">
-                  <p className="text-xs font-medium text-gray-400 mb-2">Dependency Packs</p>
-                  <div className="flex flex-wrap gap-2">
-                    {contract.dependency_packs.map(p => (
-                      <span key={p} className={`badge ${DB.connectedPacks[contract.identity.owner_customer_id]?.includes(p) ? 'badge-success' : 'badge-danger'}`}>
-                        {PACKS[p]?.name || p} {DB.connectedPacks[contract.identity.owner_customer_id]?.includes(p) ? '✓' : '✗'}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Usage summary */}
-              {usage.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-700">
-                  <p className="text-xs font-medium text-gray-400 mb-2">Usage Summary</p>
-                  <div className="flex gap-6 text-sm">
-                    <span>Actions: {usage.reduce((s, u) => s + u.actions_count, 0)}</span>
-                    <span>Token cost: ${(usage.reduce((s, u) => s + u.token_cost, 0) / 100).toFixed(2)}</span>
-                    <span>Tool cost: ${(usage.reduce((s, u) => s + u.tool_cost, 0) / 100).toFixed(2)}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Contract JSON */}
-              {selectedContract?.contract_id === contract.contract_id && (
-                <div className="mt-4 pt-4 border-t border-gray-700">
-                  <p className="text-xs font-medium text-gray-400 mb-2">Contract JSON</p>
-                  <div className="bg-wf-primary rounded-lg p-3 max-h-64 overflow-auto">
-                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">{JSON.stringify(contract, null, 2)}</pre>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
+  if (selectedProduct) return (
+    <ProductDetail product={selectedProduct} onBack={() => setSelectedProduct(null)} addToCart={addToCart} inCart={cart.some((c: CartItem) => c.product.id === selectedProduct.id)} />
   );
-}
-
-// ============================================================
-// ADMIN CONSOLE
-// ============================================================
-function Admin({ refresh }: { refresh: () => void }) {
-  const [tab, setTab] = useState<'orders' | 'contracts' | 'instances' | 'audit' | 'usage'>('orders');
-  const [selectedContract, setSelectedContract] = useState<string | null>(null);
-
-  const approveContract = (contractId: string) => {
-    const contract = DB.contracts.find(c => c.contract_id === contractId);
-    if (!contract) return;
-    if (doTransition(contract, 'approved', 'admin', 'Admin approved')) {
-      doTransition(contract, 'staged', 'system', 'Auto-staged after approval');
-      const instance = DB.instances.find(i => i.contract_id === contractId);
-      if (instance) { instance.state = 'staged'; instance.updated_at = now(); }
-      audit('admin', 'approve', contractId, 'Approved and staged');
-      refresh();
-    }
-  };
-
-  const goLive = (contractId: string) => {
-    const contract = DB.contracts.find(c => c.contract_id === contractId);
-    if (!contract) return;
-    if (contract.deployment.state === 'staged') {
-      doTransition(contract, 'live', 'admin', 'Admin pushed to live');
-      const instance = DB.instances.find(i => i.contract_id === contractId);
-      if (instance) { instance.state = 'live'; instance.updated_at = now(); }
-      // Seed some usage
-      DB.usage.push({ id: uid(), contract_id: contractId, timestamp: now(), actions_count: 12, token_cost: 45, tool_cost: 10 });
-      audit('admin', 'go_live', contractId, 'Pushed to live');
-      refresh();
-    }
-  };
-
-  const pauseAgent = (contractId: string) => {
-    const contract = DB.contracts.find(c => c.contract_id === contractId);
-    if (!contract) return;
-    if (doTransition(contract, 'paused', 'admin', 'Admin paused')) {
-      const instance = DB.instances.find(i => i.contract_id === contractId);
-      if (instance) { instance.state = 'paused'; instance.updated_at = now(); }
-      audit('admin', 'pause', contractId, 'Paused by admin');
-      refresh();
-    }
-  };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-10">
-      <h1 className="text-3xl font-bold mb-2">Admin Console</h1>
-      <p className="text-gray-400 mb-8">Manage orders, contracts, agents, and system health.</p>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-        <StatCard label="Customers" value={DB.customers.length} color="text-blue-400" />
-        <StatCard label="Orders" value={DB.orders.length} color="text-purple-400" />
-        <StatCard label="Contracts" value={DB.contracts.length} color="text-wf-accent" />
-        <StatCard label="Live Agents" value={DB.instances.filter(i => i.state === 'live').length} color="text-green-400" />
-        <StatCard label="Audit Events" value={DB.audit.length} color="text-gray-400" />
+    <div className="max-w-7xl mx-auto px-6 py-12">
+      <div className="flex flex-col md:flex-row gap-4 mb-8">
+        <div className="flex-1 relative">
+          <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"><Icons.Search /></div>
+          <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key==='Enter' && doSearch()}
+            placeholder="Search agents, categories, capabilities..."
+            className="w-full pl-12 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:border-cyan-500/50" />
+        </div>
+        <button onClick={doSearch} className="px-6 py-3 bg-cyan-500/20 text-cyan-400 rounded-xl hover:bg-cyan-500/30 transition font-medium">Search</button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6 border-b border-gray-800 pb-2">
-        {(['orders', 'contracts', 'instances', 'audit', 'usage'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded-t-lg text-sm font-medium capitalize ${tab === t ? 'bg-wf-surface text-wf-accent border-b-2 border-wf-accent' : 'text-gray-400 hover:text-white'}`}>
-            {t}
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 mb-8">
+        <button onClick={() => setSelCat(null)} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${!selCat ? 'bg-cyan-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>All</button>
+        {(categories as CategoryStat[]).filter(c => c.cnt > 1).map(c => (
+          <button key={c.category} onClick={() => setSelCat(c.category === selCat ? null : c.category)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${selCat === c.category ? 'bg-cyan-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+            {catIcons[c.category] || '🤖'} {c.category} ({c.cnt})
           </button>
         ))}
       </div>
 
-      {/* Orders tab */}
-      {tab === 'orders' && (
-        <div className="card overflow-x-auto">
-          <table className="w-full">
-            <thead><tr className="border-b border-gray-700">
-              <th className="table-header">Order ID</th>
-              <th className="table-header">Customer</th>
-              <th className="table-header">Type</th>
-              <th className="table-header">Status</th>
-              <th className="table-header">Contract</th>
-              <th className="table-header">Created</th>
-            </tr></thead>
-            <tbody>
-              {DB.orders.map(o => {
-                const cust = DB.customers.find(c => c.customer_id === o.customer_id);
-                return (
-                  <tr key={o.order_id} className="border-b border-gray-800">
-                    <td className="table-cell font-mono text-xs">{o.order_id.slice(0, 8)}</td>
-                    <td className="table-cell">{cust?.email || '—'}</td>
-                    <td className="table-cell"><span className="badge badge-info">{o.request_type}</span></td>
-                    <td className="table-cell"><span className={`badge ${o.status === 'validated' ? 'badge-success' : o.status === 'compiled' ? 'badge-warning' : 'badge-info'}`}>{o.status}</span></td>
-                    <td className="table-cell font-mono text-xs">{o.contract_id?.slice(0, 8) || '—'}</td>
-                    <td className="table-cell text-gray-400 text-xs">{new Date(o.created_at).toLocaleString()}</td>
-                  </tr>
-                );
-              })}
-              {DB.orders.length === 0 && <tr><td colSpan={6} className="table-cell text-center text-gray-500">No orders yet</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* Tier filter */}
+      <div className="flex gap-2 mb-8">
+        {['Core','Premium','Enterprise'].map(t => (
+          <button key={t} onClick={() => setSelTier(t === selTier ? null : t)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${selTier === t ? 'bg-cyan-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>{t}</button>
+        ))}
+      </div>
 
-      {/* Contracts tab */}
-      {tab === 'contracts' && (
-        <div className="space-y-4">
-          {DB.contracts.map(c => (
-            <div key={c.contract_id} className="card">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-3 mb-1">
-                    <h3 className="font-bold">{c.identity.agent_name}</h3>
-                    <StateBadge state={c.deployment.state} />
-                    <ReadinessBadge score={c.readiness_score} level={c.readiness_level} />
-                  </div>
-                  <p className="text-sm text-gray-400">{c.objective.primary_goal}</p>
-                  <div className="flex gap-2 mt-2">
-                    {c.channels.map(ch => <span key={ch} className="badge badge-info text-xs">{ch}</span>)}
-                  </div>
-                  <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                    <span>Packs: {c.dependency_packs.length}</span>
-                    <span>Tasks: {c.tasks.length}</span>
-                    <span>Score: {c.readiness_score}%</span>
-                    <span>Stripe: {c.commercial_model.stripe_customer_id ? '✓' : '✗'}</span>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {c.deployment.state === 'validated' && (
-                    <button onClick={() => approveContract(c.contract_id)} className="px-3 py-1 rounded text-xs font-medium bg-green-900/50 text-green-300 hover:bg-green-800/50">Approve</button>
-                  )}
-                  {c.deployment.state === 'staged' && (
-                    <button onClick={() => goLive(c.contract_id)} className="px-3 py-1 rounded text-xs font-medium bg-blue-900/50 text-blue-300 hover:bg-blue-800/50">Go Live</button>
-                  )}
-                  {(c.deployment.state === 'live' || c.deployment.state === 'staged') && (
-                    <button onClick={() => pauseAgent(c.contract_id)} className="px-3 py-1 rounded text-xs font-medium bg-yellow-900/50 text-yellow-300 hover:bg-yellow-800/50">Pause</button>
-                  )}
-                  <button onClick={() => setSelectedContract(selectedContract === c.contract_id ? null : c.contract_id)} className="px-3 py-1 rounded text-xs font-medium bg-gray-700 text-gray-300">
-                    {selectedContract === c.contract_id ? 'Hide JSON' : 'View JSON'}
-                  </button>
-                </div>
+      {loading ? (
+        <div className="text-center py-20 text-gray-500">Loading catalog...</div>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {(products as Product[]).map(p => (
+            <div key={p.id} className="group bg-white/[0.02] border border-white/5 rounded-2xl p-6 hover:border-cyan-500/20 hover:bg-white/[0.04] transition-all cursor-pointer" onClick={() => setSelectedProduct(p)}>
+              <div className="flex items-start justify-between mb-4">
+                <span className="text-2xl">{catIcons[p.category] || '🤖'}</span>
+                {p.tier && <span className={`px-3 py-1 rounded-full text-xs font-medium ${tierColors[p.tier] || 'bg-gray-100 text-gray-700'}`}>{p.tier}</span>}
               </div>
-
-              {/* Missing packs */}
-              {c.dependency_packs.some(p => !(DB.connectedPacks[c.identity.owner_customer_id] || []).includes(p)) && (
-                <div className="mt-3 p-2 rounded bg-red-900/20 border border-red-800/50">
-                  <p className="text-xs text-red-300 font-medium">Missing dependency packs:</p>
-                  <p className="text-xs text-red-400">{c.dependency_packs.filter(p => !(DB.connectedPacks[c.identity.owner_customer_id] || []).includes(p)).map(p => PACKS[p]?.name || p).join(', ')}</p>
-                </div>
-              )}
-
-              {/* Contract JSON */}
-              {selectedContract === c.contract_id && (
-                <div className="mt-4 pt-4 border-t border-gray-700">
-                  <div className="bg-wf-primary rounded-lg p-3 max-h-80 overflow-auto">
-                    <pre className="text-xs text-gray-300 whitespace-pre-wrap">{JSON.stringify(c, null, 2)}</pre>
-                  </div>
-                </div>
-              )}
-
-              {/* State history */}
-              <div className="mt-3 pt-3 border-t border-gray-700">
-                <p className="text-xs font-medium text-gray-400 mb-1">State History</p>
-                <div className="flex flex-wrap gap-1">
-                  {c.audit.state_history.map((h, i) => (
-                    <span key={i} className="text-xs text-gray-500">
-                      {h.from || '∅'} → <span className="text-gray-300">{h.to}</span>
-                      {i < c.audit.state_history.length - 1 && ' → '}
-                    </span>
-                  ))}
-                </div>
+              <h3 className="font-semibold text-lg mb-2 group-hover:text-cyan-400 transition">{p.name}</h3>
+              <p className="text-sm text-gray-400 mb-4 line-clamp-2">{p.description}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-xl font-bold text-cyan-400">{formatPrice(p.base_price)}</span>
+                <span className="text-xs text-gray-500">{p.category}</span>
               </div>
+              <button onClick={(e) => { e.stopPropagation(); addToCart(p); }}
+                className="mt-4 w-full py-2.5 bg-cyan-500/10 text-cyan-400 rounded-xl text-sm font-medium hover:bg-cyan-500/20 transition">
+                + Add to Contract
+              </button>
             </div>
           ))}
-          {DB.contracts.length === 0 && <div className="card text-center text-gray-500">No contracts yet</div>}
         </div>
       )}
-
-      {/* Instances tab */}
-      {tab === 'instances' && (
-        <div className="card overflow-x-auto">
-          <table className="w-full">
-            <thead><tr className="border-b border-gray-700">
-              <th className="table-header">Instance ID</th>
-              <th className="table-header">Contract</th>
-              <th className="table-header">State</th>
-              <th className="table-header">Environment</th>
-              <th className="table-header">Created</th>
-            </tr></thead>
-            <tbody>
-              {DB.instances.map(i => (
-                <tr key={i.instance_id} className="border-b border-gray-800">
-                  <td className="table-cell font-mono text-xs">{i.instance_id.slice(0, 8)}</td>
-                  <td className="table-cell font-mono text-xs">{i.contract_id.slice(0, 8)}</td>
-                  <td className="table-cell"><StateBadge state={i.state} /></td>
-                  <td className="table-cell">{i.environment}</td>
-                  <td className="table-cell text-gray-400 text-xs">{new Date(i.created_at).toLocaleString()}</td>
-                </tr>
-              ))}
-              {DB.instances.length === 0 && <tr><td colSpan={5} className="table-cell text-center text-gray-500">No instances</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Audit tab */}
-      {tab === 'audit' && (
-        <div className="card overflow-x-auto">
-          <table className="w-full">
-            <thead><tr className="border-b border-gray-700">
-              <th className="table-header">Time</th>
-              <th className="table-header">Actor</th>
-              <th className="table-header">Action</th>
-              <th className="table-header">Target</th>
-              <th className="table-header">Details</th>
-            </tr></thead>
-            <tbody>
-              {DB.audit.map(a => (
-                <tr key={a.id} className="border-b border-gray-800">
-                  <td className="table-cell text-gray-400 text-xs whitespace-nowrap">{new Date(a.timestamp).toLocaleString()}</td>
-                  <td className="table-cell text-xs">{a.actor}</td>
-                  <td className="table-cell"><span className="badge badge-purple text-xs">{a.action}</span></td>
-                  <td className="table-cell font-mono text-xs">{a.target.slice(0, 8)}</td>
-                  <td className="table-cell text-xs text-gray-400">{a.details}</td>
-                </tr>
-              ))}
-              {DB.audit.length === 0 && <tr><td colSpan={5} className="table-cell text-center text-gray-500">No audit events</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Usage tab */}
-      {tab === 'usage' && (
-        <div className="card overflow-x-auto">
-          <table className="w-full">
-            <thead><tr className="border-b border-gray-700">
-              <th className="table-header">Time</th>
-              <th className="table-header">Contract</th>
-              <th className="table-header">Actions</th>
-              <th className="table-header">Token Cost</th>
-              <th className="table-header">Tool Cost</th>
-            </tr></thead>
-            <tbody>
-              {DB.usage.map(u => (
-                <tr key={u.id} className="border-b border-gray-800">
-                  <td className="table-cell text-gray-400 text-xs">{new Date(u.timestamp).toLocaleString()}</td>
-                  <td className="table-cell font-mono text-xs">{u.contract_id.slice(0, 8)}</td>
-                  <td className="table-cell">{u.actions_count}</td>
-                  <td className="table-cell">${(u.token_cost / 100).toFixed(2)}</td>
-                  <td className="table-cell">${(u.tool_cost / 100).toFixed(2)}</td>
-                </tr>
-              ))}
-              {DB.usage.length === 0 && <tr><td colSpan={5} className="table-cell text-center text-gray-500">No usage events</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {!loading && products.length === 0 && <div className="text-center py-20 text-gray-500">No products found. Try adjusting your filters.</div>}
     </div>
   );
 }
 
-// ============================================================
-// SHARED COMPONENTS
-// ============================================================
-function StatCard({ label, value, color }: { label: string; value: number | string; color: string }) {
+/* ═══════════════════════════════════════════════════════ */
+/*  PRODUCT DETAIL                                        */
+/* ═══════════════════════════════════════════════════════ */
+function ProductDetail({ product, onBack, addToCart, inCart }: { product: Product; onBack: ()=>void; addToCart: (p: Product)=>void; inCart: boolean }) {
   return (
-    <div className="card py-4">
-      <div className={`text-2xl font-bold ${color}`}>{value}</div>
-      <div className="text-xs text-gray-400 mt-1">{label}</div>
+    <div className="max-w-4xl mx-auto px-6 py-12">
+      <button onClick={onBack} className="text-gray-400 hover:text-white mb-8 flex items-center gap-2">← Back to catalog</button>
+      <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-10">
+        <div className="flex items-start justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <span className="text-4xl">{catIcons[product.category] || '🤖'}</span>
+            <div>
+              <h1 className="text-3xl font-bold">{product.name}</h1>
+              <div className="flex gap-3 mt-2">
+                <span className="text-sm text-gray-400">{product.category}</span>
+                {product.tier && <span className={`px-3 py-0.5 rounded-full text-xs font-medium ${tierColors[product.tier] || ''}`}>{product.tier}</span>}
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-3xl font-bold text-cyan-400">{formatPrice(product.base_price)}</div>
+            {product.engagement_model && <div className="text-sm text-gray-500 mt-1">{product.engagement_model}</div>}
+          </div>
+        </div>
+        <p className="text-gray-300 text-lg leading-relaxed mb-8">{product.description}</p>
+        {product.customer_outcome && (
+          <div className="bg-cyan-500/5 border border-cyan-500/10 rounded-xl p-6 mb-8">
+            <h3 className="font-semibold text-cyan-400 mb-2">Expected Outcome</h3>
+            <p className="text-gray-300">{product.customer_outcome}</p>
+          </div>
+        )}
+        <div className="grid md:grid-cols-2 gap-6 mb-8">
+          {product.target_audience && <div><span className="text-sm text-gray-500 block mb-1">Target Audience</span><span className="text-gray-300">{product.target_audience}</span></div>}
+          {product.delivery_method && <div><span className="text-sm text-gray-500 block mb-1">Delivery</span><span className="text-gray-300">{product.delivery_method}</span></div>}
+        </div>
+        <button onClick={() => addToCart(product)}
+          className={`w-full py-4 rounded-xl font-semibold text-lg transition ${inCart ? 'bg-green-500/20 text-green-400' : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-cyan-500/25'}`}>
+          {inCart ? '✓ In Contract' : '+ Add to Contract'}
+        </button>
+      </div>
     </div>
   );
 }
 
-function StateBadge({ state }: { state: string }) {
-  const colors: Record<string, string> = {
-    requested: 'badge-info', interpreted: 'badge-info', compiled: 'badge-warning',
-    validated: 'badge-purple', approved: 'badge-success', staged: 'badge-info',
-    live: 'badge-success', paused: 'badge-warning', retired: 'badge-danger',
-  };
-  return <span className={`badge ${colors[state] || 'badge-info'}`}>{state}</span>;
+/* ═══════════════════════════════════════════════════════ */
+/*  CART VIEW                                             */
+/* ═══════════════════════════════════════════════════════ */
+function CartView({ cart, removeFromCart, cartTotal, onCheckout }: any) {
+  if (cart.length === 0) return (
+    <div className="max-w-3xl mx-auto px-6 py-20 text-center">
+      <Icons.Cart />
+      <h2 className="text-2xl font-bold mt-4 mb-2">Your contract is empty</h2>
+      <p className="text-gray-400">Browse the catalog and add AI agents to build your contract.</p>
+    </div>
+  );
+  return (
+    <div className="max-w-3xl mx-auto px-6 py-12">
+      <h2 className="text-2xl font-bold mb-8">Contract Builder</h2>
+      <div className="space-y-4 mb-8">
+        {(cart as CartItem[]).map(c => (
+          <div key={c.product.id} className="flex items-center justify-between bg-white/[0.02] border border-white/5 rounded-xl p-5">
+            <div className="flex items-center gap-4">
+              <span className="text-2xl">{catIcons[c.product.category] || '🤖'}</span>
+              <div>
+                <h3 className="font-semibold">{c.product.name}</h3>
+                <span className="text-sm text-gray-500">{c.product.category} {c.product.tier && `· ${c.product.tier}`}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <span className="text-cyan-400 font-bold">{formatPrice(c.product.base_price)}</span>
+              <button onClick={() => removeFromCart(c.product.id)} className="text-gray-500 hover:text-red-400 transition"><Icons.X /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="bg-white/[0.03] border border-white/10 rounded-xl p-6 flex items-center justify-between">
+        <div><span className="text-gray-400">Contract Total</span><div className="text-3xl font-bold text-cyan-400">{formatPrice(cartTotal)}</div></div>
+        <button onClick={onCheckout} className="px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold text-lg hover:shadow-lg hover:shadow-cyan-500/25 transition-all">
+          Configure & Submit <Icons.Arrow />
+        </button>
+      </div>
+    </div>
+  );
 }
 
-function ReadinessBadge({ score, level }: { score: number; level: ReadinessLevel }) {
-  const colors: Record<string, string> = { ready: 'badge-success', needs_setup: 'badge-warning', blocked: 'badge-danger' };
-  return <span className={`badge ${colors[level]}`}>{score}% — {level.replace('_', ' ')}</span>;
+/* ═══════════════════════════════════════════════════════ */
+/*  CONFIGURE / CHECKOUT VIEW                             */
+/* ═══════════════════════════════════════════════════════ */
+function ConfigureView({ cart, cartTotal, wizardStep, setWizardStep, contractData, setContractData, submitting, submitOrder, onBrowse }: any) {
+  if (cart.length === 0) return (
+    <div className="max-w-3xl mx-auto px-6 py-20 text-center">
+      <h2 className="text-2xl font-bold mb-4">No items in contract</h2>
+      <p className="text-gray-400 mb-6">Add products from the catalog first.</p>
+      <button onClick={onBrowse} className="px-6 py-3 bg-cyan-500/20 text-cyan-400 rounded-xl hover:bg-cyan-500/30 transition font-medium">Browse Catalog</button>
+    </div>
+  );
+
+  const steps = ['Details', 'SLA', 'Review'];
+  const canSubmit = contractData.email && contractData.company;
+
+  return (
+    <div className="max-w-3xl mx-auto px-6 py-12">
+      <h2 className="text-2xl font-bold mb-8">Configure Contract</h2>
+      {/* Step indicator */}
+      <div className="flex items-center gap-4 mb-12">
+        {steps.map((s, i) => (
+          <React.Fragment key={s}>
+            <button onClick={() => setWizardStep(i)} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition ${i === wizardStep ? 'bg-cyan-500 text-white' : i < wizardStep ? 'bg-cyan-500/20 text-cyan-400' : 'bg-white/5 text-gray-500'}`}>
+              {i < wizardStep ? <Icons.Check /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-xs">{i+1}</span>}
+              {s}
+            </button>
+            {i < steps.length - 1 && <div className="flex-1 h-px bg-white/10" />}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {wizardStep === 0 && (
+        <div className="space-y-6">
+          <div><label className="text-sm text-gray-400 mb-2 block">Company Name *</label><input value={contractData.company} onChange={e => setContractData({...contractData, company: e.target.value})} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50" /></div>
+          <div><label className="text-sm text-gray-400 mb-2 block">Your Name</label><input value={contractData.name} onChange={e => setContractData({...contractData, name: e.target.value})} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50" /></div>
+          <div><label className="text-sm text-gray-400 mb-2 block">Email *</label><input type="email" value={contractData.email} onChange={e => setContractData({...contractData, email: e.target.value})} className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-500/50" /></div>
+          <button onClick={() => setWizardStep(1)} disabled={!contractData.email || !contractData.company} className="px-8 py-3 bg-cyan-500 rounded-xl font-medium disabled:opacity-30 hover:bg-cyan-600 transition">Next: SLA <Icons.Arrow /></button>
+        </div>
+      )}
+
+      {wizardStep === 1 && (
+        <div className="space-y-4">
+          {[
+            { id: 'standard', name: 'Standard', desc: 'Business hours support, 24h response SLA', price: 'Included' },
+            { id: 'premium', name: 'Premium', desc: '12/7 support, 4h response SLA, dedicated buddy', price: '+15%' },
+            { id: 'enterprise', name: 'Enterprise', desc: '24/7 support, 1h response SLA, priority deployment', price: '+25%' },
+          ].map(s => (
+            <button key={s.id} onClick={() => setContractData({...contractData, sla: s.id})}
+              className={`w-full text-left p-6 rounded-xl border transition ${contractData.sla === s.id ? 'border-cyan-500 bg-cyan-500/10' : 'border-white/5 bg-white/[0.02] hover:border-white/10'}`}>
+              <div className="flex justify-between items-start">
+                <div><h3 className="font-semibold text-lg">{s.name}</h3><p className="text-sm text-gray-400 mt-1">{s.desc}</p></div>
+                <span className="text-cyan-400 font-medium">{s.price}</span>
+              </div>
+            </button>
+          ))}
+          <div className="flex gap-4 mt-6">
+            <button onClick={() => setWizardStep(0)} className="px-6 py-3 border border-white/10 rounded-xl hover:bg-white/5 transition">Back</button>
+            <button onClick={() => setWizardStep(2)} className="px-8 py-3 bg-cyan-500 rounded-xl font-medium hover:bg-cyan-600 transition">Review Contract <Icons.Arrow /></button>
+          </div>
+        </div>
+      )}
+
+      {wizardStep === 2 && (
+        <div>
+          <div className="bg-white/[0.02] border border-white/5 rounded-xl p-6 mb-6">
+            <h3 className="font-semibold mb-4">Contract Summary</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-gray-400">Company</span><span>{contractData.company}</span></div>
+              <div className="flex justify-between"><span className="text-gray-400">Email</span><span>{contractData.email}</span></div>
+              <div className="flex justify-between"><span className="text-gray-400">SLA</span><span className="capitalize">{contractData.sla}</span></div>
+              <div className="flex justify-between"><span className="text-gray-400">Items</span><span>{cart.length} product{cart.length > 1 ? 's' : ''}</span></div>
+              <hr className="border-white/5 my-3" />
+              {(cart as CartItem[]).map((c: CartItem) => (
+                <div key={c.product.id} className="flex justify-between"><span className="text-gray-400">{c.product.name}</span><span>{formatPrice(c.product.base_price)}</span></div>
+              ))}
+              <hr className="border-white/5 my-3" />
+              <div className="flex justify-between text-lg font-bold"><span>Total</span><span className="text-cyan-400">{formatPrice(cartTotal)}</span></div>
+            </div>
+          </div>
+          <div className="flex gap-4">
+            <button onClick={() => setWizardStep(1)} className="px-6 py-3 border border-white/10 rounded-xl hover:bg-white/5 transition">Back</button>
+            <button onClick={submitOrder} disabled={submitting || !canSubmit}
+              className="flex-1 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-semibold text-lg hover:shadow-lg hover:shadow-cyan-500/25 transition-all disabled:opacity-50">
+              {submitting ? 'Submitting...' : 'Submit Contract'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-// Helper functions defined at top of file (uid, now, audit)
+/* ═══════════════════════════════════════════════════════ */
+/*  DASHBOARD VIEW                                        */
+/* ═══════════════════════════════════════════════════════ */
+function DashboardView({ orderResult, cart, contractData, cartTotal }: any) {
+  return (
+    <div className="max-w-4xl mx-auto px-6 py-12">
+      <div className="text-center mb-12">
+        <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-6">
+          <Icons.Check />
+        </div>
+        <h1 className="text-3xl font-bold mb-3">Contract Submitted!</h1>
+        <p className="text-gray-400 text-lg">Your AI agents are being compiled and will move through our 9-state pipeline.</p>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white/[0.02] border border-white/5 rounded-xl p-6 text-center">
+          <span className="text-sm text-gray-500">Order</span>
+          <div className="text-lg font-mono text-cyan-400 mt-1">{orderResult?.order_id?.slice(0,8) || '—'}</div>
+        </div>
+        <div className="bg-white/[0.02] border border-white/5 rounded-xl p-6 text-center">
+          <span className="text-sm text-gray-500">Contract</span>
+          <div className="text-lg font-mono text-cyan-400 mt-1">{orderResult?.contract_id?.slice(0,8) || '—'}</div>
+        </div>
+        <div className="bg-white/[0.02] border border-white/5 rounded-xl p-6 text-center">
+          <span className="text-sm text-gray-500">Status</span>
+          <div className="text-lg font-mono text-yellow-400 mt-1">requested</div>
+        </div>
+      </div>
+
+      <div className="bg-white/[0.02] border border-white/5 rounded-xl p-6 mb-8">
+        <h3 className="font-semibold mb-4">What Happens Next</h3>
+        <div className="space-y-4">
+          {[
+            { state: 'interpreted', desc: 'Our system interprets your requirements and maps to agent capabilities' },
+            { state: 'compiled', desc: 'Agent contract is compiled with SLA bindings and deployment specs' },
+            { state: 'validated', desc: 'Automated validation checks compatibility and risk scores' },
+            { state: 'approved', desc: 'Contract is approved and enters deployment queue' },
+            { state: 'staged', desc: 'Agents are provisioned in your sandbox environment' },
+            { state: 'live', desc: 'Agents go live — your Buddy will confirm and provide support' },
+          ].map((s, i) => (
+            <div key={s.state} className="flex items-start gap-4">
+              <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs text-gray-500 font-mono shrink-0">{i+1}</div>
+              <div><span className="font-mono text-cyan-400 text-sm">{s.state}</span><p className="text-sm text-gray-400 mt-0.5">{s.desc}</p></div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-cyan-500/5 border border-cyan-500/10 rounded-xl p-6 text-center">
+        <Icons.Headphones />
+        <h3 className="font-semibold mt-3 mb-2">Need Help?</h3>
+        <p className="text-sm text-gray-400 mb-4">Your assigned Buddy will reach out within 24 hours. Or visit the Buddy portal now.</p>
+        <a href="/buddy" className="inline-block px-6 py-3 bg-cyan-500/20 text-cyan-400 rounded-xl hover:bg-cyan-500/30 transition font-medium">Go to Buddy Portal</a>
+      </div>
+    </div>
+  );
+}
