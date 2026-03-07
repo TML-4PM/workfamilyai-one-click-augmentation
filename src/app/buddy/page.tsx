@@ -217,7 +217,10 @@ export default function BuddyPage() {
       <header className="border-b border-gray-800 bg-[#0d0d20]/80 backdrop-blur sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <a href="/" className="text-gray-400 hover:text-white text-sm">← WorkFamilyAI</a>
+            <a href="/" className="flex items-center gap-2 text-gray-400 hover:text-white text-sm">
+              <img src="/droid-head.webp" alt="WF" className="w-7 h-7 rounded-lg" />
+              <span>← WorkFamilyAI</span>
+            </a>
             <span className="text-gray-600">|</span>
             <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
               Virtual Help & Buddy System

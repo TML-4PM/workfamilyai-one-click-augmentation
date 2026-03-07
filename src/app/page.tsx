@@ -336,7 +336,7 @@ export default function App() {
       <nav className="glass sticky top-0 z-50 border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <button onClick={() => setPage('landing')} className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-wf-accent rounded-lg flex items-center justify-center font-bold text-sm">WF</div>
+            <img src="/droid-head.webp" alt="WF" className="w-8 h-8 rounded-lg" />
             <span className="font-bold text-lg">WorkFamilyAI</span>
           </button>
           <div className="flex items-center gap-4">
@@ -344,6 +344,7 @@ export default function App() {
             <button onClick={() => { setWizard({ ...defaultWizard }); setPage('wizard'); }} className={`text-sm ${page === 'wizard' ? 'text-wf-accent' : 'text-gray-400 hover:text-white'}`}>New Agent</button>
             <button onClick={() => setPage('dashboard')} className={`text-sm ${page === 'dashboard' ? 'text-wf-accent' : 'text-gray-400 hover:text-white'}`}>Dashboard</button>
             <button onClick={() => setPage('admin')} className={`text-sm ${page === 'admin' ? 'text-wf-accent' : 'text-gray-400 hover:text-white'}`}>Admin</button>
+            <a href="/buddy" className="text-sm text-gray-400 hover:text-white">Buddy</a>
           </div>
         </div>
       </nav>
@@ -363,17 +364,25 @@ function Landing({ onStart }: { onStart: () => void }) {
   return (
     <div>
       {/* Hero */}
-      <section className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <div className="inline-block px-4 py-1 rounded-full bg-wf-accent/20 text-wf-accent text-sm font-medium mb-6">One-Click AI Augmentation</div>
-        <h1 className="text-5xl md:text-6xl font-bold mb-6 leading-tight">
-          Deploy AI Agents<br /><span className="text-wf-accent">In Minutes, Not Months</span>
-        </h1>
-        <p className="text-xl text-gray-400 max-w-2xl mx-auto mb-10">
-          Lead generation, customer service, sales, finance, operations — choose a template, customize your controls, and go live. No code required.
-        </p>
-        <div className="flex gap-4 justify-center">
-          <button onClick={onStart} className="btn-primary text-lg px-8 py-4">Get Started →</button>
-          <button onClick={onStart} className="btn-secondary text-lg px-8 py-4">View Templates</button>
+      <section className="max-w-7xl mx-auto px-4 py-20">
+        <div className="flex flex-col lg:flex-row items-center gap-12">
+          <div className="flex-1 text-center lg:text-left">
+            <div className="inline-block px-4 py-1 rounded-full bg-wf-accent/20 text-wf-accent text-sm font-medium mb-6">One-Click AI Augmentation</div>
+            <h1 className="text-5xl md:text-6xl font-bold mb-6 leading-tight">
+              Deploy AI Agents<br /><span className="text-wf-accent">In Minutes, Not Months</span>
+            </h1>
+            <p className="text-xl text-gray-400 max-w-2xl mb-10">
+              Lead generation, customer service, sales, finance, operations — choose a template, customize your controls, and go live. No code required.
+            </p>
+            <div className="flex gap-4 justify-center lg:justify-start">
+              <button onClick={onStart} className="btn-primary text-lg px-8 py-4">Get Started →</button>
+              <a href="/buddy" className="btn-secondary text-lg px-8 py-4 inline-block">Meet the Team →</a>
+            </div>
+          </div>
+          <div className="flex-1 max-w-lg">
+            <img src="/neural-ennead-family.png" alt="Neural Ennead AI Family" className="w-full rounded-2xl shadow-2xl shadow-wf-accent/10 border border-gray-800" />
+            <p className="text-center text-gray-500 text-xs mt-3">1,000 AI agents across WorkFamilyAI · Tech4Humanity · Neural Ennead</p>
+          </div>
         </div>
       </section>
 
