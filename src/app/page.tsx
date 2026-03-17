@@ -331,7 +331,7 @@ export default function Home() {
               <div className="mt-4 bg-slate-800/60 rounded-xl border border-slate-700 p-4 text-left">
                 <div className="text-white text-sm font-semibold mb-2">🔧 To go live, we still need:</div>
                 <div className="flex flex-wrap gap-2">
-                  {[...new Set(orderResult.dependency_packs)].map(dep => (
+                  {Array.from(new Set(orderResult.dependency_packs)).map(dep => (
                     <span key={dep} className="px-2 py-1 bg-slate-700 text-slate-300 text-xs rounded-lg capitalize">
                       {dep.replace('wf_','').replace(/_/g,' ')} pack
                     </span>
