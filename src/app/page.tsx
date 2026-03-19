@@ -1,7 +1,7 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 
-/* ─── Types ─────────────────────────────────────────────── */
 interface Product {
   product_id: string; product_name: string; family: string; risk_tier: number;
   autonomy_start_level: string; billing_model: string; description: string;
@@ -9,7 +9,8 @@ interface Product {
   exec_steps: number; test_modules: number; template_intensity: string;
 }
 interface OrderResult {
-  order_id: string; contract: { contract_id: string; readiness_score: number; readiness_level: string; state: string };
+  order_id: string;
+  contract: { contract_id: string; readiness_score: number; readiness_level: string; state: string };
   product: Product; readiness_score: number; dependency_packs: string[]; message: string;
 }
 
@@ -25,38 +26,35 @@ const RISK_LABELS: Record<number,{label:string;color:string}> = {
   4:{label:'System',color:'text-red-400 bg-red-900/40'},
 };
 const FAMILIES = ['all','sales','marketing','service','operations','content','intelligence','platform','finance','hr','grants'];
+const STEPS = ['Choose','Details','Preview','Pay'];
 
-/* ─── Step indicator ───────────────────────────────────── */
-const steps = ['Choose','Details','Preview','Go'];
 function StepBar({ current }: { current: number }) {
   return (
     <div className="flex items-center justify-center gap-0 mb-8">
-      {steps.map((s,i) => (
+      {STEPS.map((s,i) => (
         <React.Fragment key={s}>
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all
-            ${i === current ? 'bg-blue-600 text-white' : i < current ? 'bg-green-700 text-green-200' : 'bg-slate-800 text-slate-500'}`}>
+            ${i===current?'bg-blue-600 text-white':i<current?'bg-green-700 text-green-200':'bg-slate-800 text-slate-500'}`}>
             <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs
-              ${i < current ? 'bg-green-500 text-white' : i === current ? 'bg-white text-blue-600' : 'bg-slate-700 text-slate-400'}`}>
-              {i < current ? '✓' : i+1}
-            </span>
-            {s}
+              ${i<current?'bg-green-500 text-white':i===current?'bg-white text-blue-600':'bg-slate-700 text-slate-400'}`}>
+              {i<current?'✓':i+1}
+            </span>{s}
           </div>
-          {i < steps.length-1 && <div className={`h-0.5 w-6 ${i < current ? 'bg-green-600' : 'bg-slate-700'}`} />}
+          {i<STEPS.length-1 && <div className={`h-0.5 w-6 ${i<current?'bg-green-600':'bg-slate-700'}`} />}
         </React.Fragment>
       ))}
     </div>
   );
 }
 
-/* ─── Product card ─────────────────────────────────────── */
 function ProductCard({ p, selected, onClick }: { p: Product; selected: boolean; onClick: ()=>void }) {
   const risk = RISK_LABELS[p.risk_tier] || RISK_LABELS[0];
   return (
     <button onClick={onClick} className={`text-left w-full p-4 rounded-xl border transition-all
-      ${selected ? 'border-blue-500 bg-blue-950/60 ring-1 ring-blue-500' : 'border-slate-700 bg-slate-800/60 hover:border-slate-500'}`}>
+      ${selected?'border-blue-500 bg-blue-950/60 ring-1 ring-blue-500':'border-slate-700 bg-slate-800/60 hover:border-slate-500'}`}>
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-2">
-          <span className="text-xl">{FAMILY_ICONS[p.family] || '🤖'}</span>
+          <span className="text-xl">{FAMILY_ICONS[p.family]||'🤖'}</span>
           <span className="font-semibold text-white text-sm leading-tight">{p.product_name}</span>
         </div>
         <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${risk.color}`}>{risk.label}</span>
@@ -71,8 +69,8 @@ function ProductCard({ p, selected, onClick }: { p: Product; selected: boolean; 
       </div>
       {selected && (
         <div className="mt-3 pt-3 border-t border-blue-800/50 flex gap-3 text-xs text-slate-400">
-          <span>⚡ {p.exec_steps} steps</span>
-          <span>🧪 {p.test_modules} tests</span>
+          <span>⚡ {p.exec_steps ?? '—'} steps</span>
+          <span>🧪 {p.test_modules ?? '—'} tests</span>
           <span>🤖 L{p.autonomy_start_level?.replace('L','')}</span>
           {p.requires_human_gate && <span className="text-yellow-500">🔒 gated</span>}
         </div>
@@ -81,9 +79,8 @@ function ProductCard({ p, selected, onClick }: { p: Product; selected: boolean; 
   );
 }
 
-/* ─── Readiness badge ──────────────────────────────────── */
 function ReadinessBadge({ score, level }: { score: number; level: string }) {
-  const color = score >= 80 ? 'text-green-400' : score >= 60 ? 'text-yellow-400' : 'text-red-400';
+  const color = score>=80?'text-green-400':score>=60?'text-yellow-400':'text-red-400';
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-800 border border-slate-700">
       <div className={`text-3xl font-black ${color}`}>{score}%</div>
@@ -101,8 +98,12 @@ function ReadinessBadge({ score, level }: { score: number; level: string }) {
   );
 }
 
-/* ─── Main page ────────────────────────────────────────── */
-export default function Home() {
+function HomeContent() {
+  const searchParams = useSearchParams();
+  const paid = searchParams.get('paid');
+  const cancelled = searchParams.get('cancelled');
+  const returnOrderId = searchParams.get('order_id');
+
   const [step, setStep] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
   const [filter, setFilter] = useState('all');
@@ -111,41 +112,58 @@ export default function Home() {
   const [customer, setCustomer] = useState({ name:'', email:'', company:'', country:'AU', tech_comfort_level:'basic' });
   const [loading, setLoading] = useState(false);
   const [orderResult, setOrderResult] = useState<OrderResult|null>(null);
+  const [customerId, setCustomerId] = useState<string|null>(null);
   const [error, setError] = useState('');
+  const [postPaid, setPostPaid] = useState<{deployed:boolean;instance_id:string;state:string}|null>(null);
 
   useEffect(() => {
     fetch('/api/products').then(r=>r.json()).then(d=>setProducts(d.products||[]));
   }, []);
 
+  // Handle return from Stripe
+  useEffect(() => {
+    if (paid && returnOrderId) {
+      setStep(3);
+      // Trigger deploy
+      fetch('/api/deploy', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ order_id: returnOrderId, trigger: 'post_payment' }),
+      }).then(r=>r.json()).then(d=>setPostPaid(d)).catch(()=>{});
+    }
+    if (cancelled) {
+      setError('Payment cancelled. Your contract is saved — try again when ready.');
+    }
+  }, [paid, cancelled, returnOrderId]);
+
   const filtered = products.filter(p => {
-    const matchFamily = filter === 'all' || p.family === filter;
-    const matchSearch = !search || p.product_name.toLowerCase().includes(search.toLowerCase())
-      || p.description?.toLowerCase().includes(search.toLowerCase())
-      || p.family.toLowerCase().includes(search.toLowerCase());
+    const matchFamily = filter==='all'||p.family===filter;
+    const matchSearch = !search||p.product_name.toLowerCase().includes(search.toLowerCase())
+      ||p.description?.toLowerCase().includes(search.toLowerCase())
+      ||p.family.toLowerCase().includes(search.toLowerCase());
     return matchFamily && matchSearch;
   });
 
   async function handleOrder() {
     setLoading(true); setError('');
     try {
-      // 1. Upsert customer
       const custRes = await fetch('/api/customer', {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(customer),
       });
       const custData = await custRes.json();
       if (custData.error) throw new Error(custData.error);
-      const customer_id = custData.customer?.customer_id;
+      const cid = custData.customer?.customer_id;
+      setCustomerId(cid);
 
-      // 2. Create order + contract
       const orderRes = await fetch('/api/order', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ customer_id, product_id: selected!.product_id, request_mode: 'catalogue' }),
+        body: JSON.stringify({ customer_id: cid, product_id: selected!.product_id, request_mode: 'catalogue' }),
       });
       const orderData = await orderRes.json();
       if (orderData.error) throw new Error(orderData.error);
       setOrderResult(orderData);
-      setStep(3);
+      setStep(2);
     } catch(e) {
       setError(String(e));
     } finally {
@@ -153,67 +171,126 @@ export default function Home() {
     }
   }
 
+  async function handleCheckout() {
+    if (!orderResult || !customerId || !selected) return;
+    setLoading(true); setError('');
+    try {
+      const res = await fetch('/api/checkout', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          order_id: orderResult.order_id,
+          customer_id: customerId,
+          product_id: selected.product_id,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+      }
+    } catch(e) {
+      setError(String(e));
+      setLoading(false);
+    }
+  }
+
+  // Post-payment success screen
+  if (paid && step === 3) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100">
+        <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
+          <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🤖</span>
+              <div><div className="font-bold text-white">WorkFamilyAI</div><div className="text-xs text-slate-400">One-Click Augmentation</div></div>
+            </div>
+          </div>
+        </header>
+        <main className="max-w-5xl mx-auto px-4 py-8">
+          <div className="max-w-lg mx-auto text-center">
+            <div className="text-6xl mb-4">🎉</div>
+            <h2 className="text-2xl font-bold text-white mb-2">Payment confirmed</h2>
+            <p className="text-slate-400 text-sm mb-6">Your agent is being provisioned in staging_safe.</p>
+            {postPaid ? (
+              <div className="bg-slate-800/60 rounded-xl border border-green-700/40 p-5 text-left mb-6">
+                <div className="text-green-400 font-semibold text-sm mb-3">✅ Agent instance live</div>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div><div className="text-slate-500 mb-1">Instance ID</div><div className="text-white font-mono">{postPaid.instance_id?.slice(0,16)}…</div></div>
+                  <div><div className="text-slate-500 mb-1">State</div><div className="text-green-400 capitalize font-semibold">{postPaid.state}</div></div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-800/60 rounded-xl border border-slate-700 p-4 mb-6 text-slate-400 text-sm">
+                ⏳ Provisioning instance…
+              </div>
+            )}
+            <div className="bg-yellow-900/20 border border-yellow-700/40 rounded-lg p-3 mb-6 text-yellow-300 text-xs">
+              ⚠️ Running in <strong>staging_safe</strong> — no live sends, no real charges until promoted.
+            </div>
+            <button onClick={()=>{ window.location.href='/'; }}
+              className="w-full py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm hover:bg-slate-700">
+              Deploy another agent →
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      {/* Header */}
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-2xl">🤖</span>
-            <div>
-              <div className="font-bold text-white">WorkFamilyAI</div>
-              <div className="text-xs text-slate-400">One-Click Augmentation</div>
-            </div>
+            <div><div className="font-bold text-white">WorkFamilyAI</div><div className="text-xs text-slate-400">One-Click Augmentation</div></div>
           </div>
-          <div className="text-xs text-slate-500 hidden sm:block">
-            50 agents · staging-safe · all gated
-          </div>
+          <div className="text-xs text-slate-500 hidden sm:block">50 agents · staging-safe · all gated</div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8">
         <StepBar current={step} />
 
+        {cancelled && (
+          <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-3 mb-6 text-yellow-300 text-sm text-center">
+            Payment cancelled. Contract is saved — continue when ready.
+          </div>
+        )}
+
         {/* STEP 0 — Choose */}
-        {step === 0 && (
+        {step===0 && (
           <div>
             <div className="text-center mb-8">
               <h1 className="text-3xl font-black text-white mb-2">Deploy your first augmentation.</h1>
               <p className="text-slate-400">Pick a product. We handle the rest — contract, compliance, and deployment.</p>
             </div>
-
-            {/* Search + filter */}
             <div className="flex gap-3 mb-4 flex-wrap">
-              <input value={search} onChange={e=>setSearch(e.target.value)}
-                placeholder="Search products..."
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search products…"
                 className="flex-1 min-w-48 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500" />
               <div className="flex gap-1 flex-wrap">
-                {FAMILIES.map(f => (
+                {FAMILIES.map(f=>(
                   <button key={f} onClick={()=>setFilter(f)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-all
-                      ${filter===f ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
-                    {f==='all' ? `All (${products.length})` : `${FAMILY_ICONS[f]||''} ${f}`}
+                      ${filter===f?'bg-blue-600 text-white':'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
+                    {f==='all'?`All (${products.length})`:`${FAMILY_ICONS[f]||''} ${f}`}
                   </button>
                 ))}
               </div>
             </div>
-
-            {/* Product grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-              {filtered.map(p => (
+              {filtered.map(p=>(
                 <ProductCard key={p.product_id} p={p}
-                  selected={selected?.product_id === p.product_id}
-                  onClick={() => setSelected(selected?.product_id === p.product_id ? null : p)} />
+                  selected={selected?.product_id===p.product_id}
+                  onClick={()=>setSelected(selected?.product_id===p.product_id?null:p)} />
               ))}
             </div>
-
-            {/* CTA */}
             {selected && (
               <div className="sticky bottom-4">
                 <div className="bg-blue-600 rounded-xl p-4 flex items-center justify-between shadow-2xl">
                   <div>
                     <div className="font-bold text-white">{selected.product_name}</div>
-                    <div className="text-blue-200 text-sm">${selected.monthly_price_usd}/mo · {selected.exec_steps} exec steps · {selected.test_modules} tests</div>
+                    <div className="text-blue-200 text-sm">${selected.monthly_price_usd}/mo{selected.starter_price_usd>0?` · $${selected.starter_price_usd} setup`:''} · {selected.exec_steps??'—'} steps</div>
                   </div>
                   <button onClick={()=>setStep(1)}
                     className="bg-white text-blue-700 font-bold px-5 py-2 rounded-lg hover:bg-blue-50 transition-all text-sm">
@@ -226,7 +303,7 @@ export default function Home() {
         )}
 
         {/* STEP 1 — Details */}
-        {step === 1 && selected && (
+        {step===1 && selected && (
           <div className="max-w-lg mx-auto">
             <div className="text-center mb-6">
               <div className="text-4xl mb-2">{FAMILY_ICONS[selected.family]||'🤖'}</div>
@@ -235,16 +312,11 @@ export default function Home() {
             </div>
             <div className="space-y-3 bg-slate-800/60 rounded-xl p-5 border border-slate-700">
               <h3 className="text-white font-semibold text-sm">Your details</h3>
-              {[
-                ['name','Full name','text',true],
-                ['email','Work email','email',true],
-                ['company','Company name','text',false],
-                ['country','Country code (AU, US, SG…)','text',false],
-              ].map(([field,label,type,required]) => (
-                <div key={field as string}>
-                  <label className="text-slate-400 text-xs block mb-1">{label as string}{required && ' *'}</label>
-                  <input type={type as string} value={(customer as Record<string,string>)[field as string]}
-                    onChange={e=>setCustomer(c=>({...c,[field as string]:e.target.value}))}
+              {([['name','Full name','text',true],['email','Work email','email',true],['company','Company name','text',false],['country','Country code (AU, US, SG…)','text',false]] as const).map(([field,label,type,required])=>(
+                <div key={field}>
+                  <label className="text-slate-400 text-xs block mb-1">{label}{required&&' *'}</label>
+                  <input type={type} value={(customer as Record<string,string>)[field]}
+                    onChange={e=>setCustomer(c=>({...c,[field]:e.target.value}))}
                     className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white text-sm focus:outline-none focus:border-blue-500" />
                 </div>
               ))}
@@ -270,26 +342,26 @@ export default function Home() {
           </div>
         )}
 
-        {/* STEP 2 — Contract preview */}
-        {step === 2 && selected && (
+        {/* STEP 2 — Contract preview + pay */}
+        {step===2 && selected && (
           <div className="max-w-lg mx-auto">
             <h2 className="text-xl font-bold text-white mb-4 text-center">Contract Preview</h2>
             <div className="bg-slate-800/60 rounded-xl border border-slate-700 overflow-hidden mb-4">
-              {[
+              {([
                 ['Agent', selected.product_name],
                 ['Family', selected.family],
                 ['Objective', selected.description],
                 ['Channels', 'LinkedIn · Email'],
                 ['Autonomy start', selected.autonomy_start_level],
                 ['Risk tier', `Tier ${selected.risk_tier} — ${RISK_LABELS[selected.risk_tier]?.label}`],
-                ['Human gate', selected.requires_human_gate ? '🔒 Required on sensitive actions' : '✅ Not required'],
+                ['Human gate', selected.requires_human_gate?'🔒 Required':'✅ Not required'],
                 ['Environment', 'staging_safe'],
-                ['Guardrails', 'Margin floor 55% · Max discount 10% · No bespoke legal'],
-                ['Exec steps', `${selected.exec_steps} autonomous steps`],
-                ['Test modules', `${selected.test_modules} validation tests`],
+                ['Guardrails', 'Margin floor 55% · Max discount 10%'],
+                ['Exec steps', `${selected.exec_steps??'—'} autonomous steps`],
+                ['Test modules', `${selected.test_modules??'—'} validation tests`],
                 ['Monthly', `$${selected.monthly_price_usd}/mo`],
-                ['Setup', selected.starter_price_usd > 0 ? `$${selected.starter_price_usd} once` : 'None'],
-              ].map(([k,v]) => (
+                ['Setup', selected.starter_price_usd>0?`$${selected.starter_price_usd} once`:'None'],
+              ] as [string,string][]).map(([k,v])=>(
                 <div key={k} className="flex gap-3 px-4 py-2.5 border-b border-slate-700/50 last:border-0">
                   <span className="text-slate-500 text-xs w-32 shrink-0 pt-0.5">{k}</span>
                   <span className="text-white text-xs flex-1">{v}</span>
@@ -297,52 +369,33 @@ export default function Home() {
               ))}
             </div>
             <div className="bg-yellow-900/20 border border-yellow-700/40 rounded-lg p-3 mb-4 text-yellow-300 text-xs">
-              ⚠️ This deploys to <strong>staging_safe</strong>. No live sends, no real charges until you promote.
+              ⚠️ Deploys to <strong>staging_safe</strong>. No live sends until promoted.
             </div>
             {error && <div className="bg-red-900/30 border border-red-700 rounded-lg p-3 mb-4 text-red-300 text-xs">{error}</div>}
-            <div className="flex gap-3">
-              <button onClick={()=>setStep(1)} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-sm hover:bg-slate-700">← Back</button>
-              <button onClick={handleOrder} disabled={loading}
-                className="flex-2 px-8 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-500 disabled:opacity-60">
-                {loading ? '⏳ Compiling contract…' : '🚀 Deploy to staging →'}
-              </button>
-            </div>
-          </div>
-        )}
 
-        {/* STEP 3 — Deployed */}
-        {step === 3 && orderResult && (
-          <div className="max-w-lg mx-auto text-center">
-            <div className="text-6xl mb-4">✅</div>
-            <h2 className="text-2xl font-bold text-white mb-2">Contract compiled</h2>
-            <p className="text-slate-400 text-sm mb-6">{orderResult.message}</p>
-            <ReadinessBadge score={orderResult.readiness_score} level={orderResult.contract?.readiness_level} />
-            <div className="mt-4 grid grid-cols-2 gap-3 text-left">
-              <div className="bg-slate-800 rounded-lg p-3 border border-slate-700">
-                <div className="text-slate-400 text-xs mb-1">Order ID</div>
-                <div className="text-white text-xs font-mono truncate">{orderResult.order_id?.slice(0,18)}…</div>
+            {!orderResult ? (
+              <div className="flex gap-3">
+                <button onClick={()=>setStep(1)} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-sm hover:bg-slate-700">← Back</button>
+                <button onClick={handleOrder} disabled={loading}
+                  className="flex-2 px-8 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-500 disabled:opacity-60">
+                  {loading?'⏳ Compiling…':'📋 Compile contract →'}
+                </button>
               </div>
-              <div className="bg-slate-800 rounded-lg p-3 border border-slate-700">
-                <div className="text-slate-400 text-xs mb-1">Contract state</div>
-                <div className="text-green-400 text-xs font-semibold capitalize">{orderResult.contract?.state}</div>
-              </div>
-            </div>
-            {orderResult.dependency_packs?.length > 0 && (
-              <div className="mt-4 bg-slate-800/60 rounded-xl border border-slate-700 p-4 text-left">
-                <div className="text-white text-sm font-semibold mb-2">🔧 To go live, we still need:</div>
-                <div className="flex flex-wrap gap-2">
-                  {Array.from(new Set(orderResult.dependency_packs)).map(dep => (
-                    <span key={dep} className="px-2 py-1 bg-slate-700 text-slate-300 text-xs rounded-lg capitalize">
-                      {dep.replace('wf_','').replace(/_/g,' ')} pack
-                    </span>
-                  ))}
+            ) : (
+              <div>
+                <div className="mb-4"><ReadinessBadge score={orderResult.readiness_score} level={orderResult.contract?.readiness_level} /></div>
+                <div className="bg-blue-900/30 border border-blue-700/40 rounded-lg p-3 mb-4 text-blue-200 text-xs">
+                  ✅ Contract compiled — Order <span className="font-mono">{orderResult.order_id?.slice(0,12)}…</span>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={()=>setStep(1)} className="flex-1 py-2 rounded-lg bg-slate-800 text-slate-300 text-sm hover:bg-slate-700">← Back</button>
+                  <button onClick={handleCheckout} disabled={loading}
+                    className="flex-2 px-8 py-2 rounded-lg bg-green-600 text-white text-sm font-bold hover:bg-green-500 disabled:opacity-60">
+                    {loading?'⏳ Redirecting…':'💳 Pay & Deploy →'}
+                  </button>
                 </div>
               </div>
             )}
-            <button onClick={()=>{setStep(0);setSelected(null);setOrderResult(null);}}
-              className="mt-6 w-full py-2.5 rounded-lg bg-slate-800 text-slate-300 text-sm hover:bg-slate-700">
-              Order another agent
-            </button>
           </div>
         )}
       </main>
@@ -351,5 +404,13 @@ export default function Home() {
         WorkFamilyAI · One-Click Augmentation · staging-safe · all actions gated
       </footer>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400">Loading…</div>}>
+      <HomeContent />
+    </Suspense>
   );
 }
