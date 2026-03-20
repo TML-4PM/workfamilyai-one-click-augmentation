@@ -200,10 +200,10 @@ function HomeContent() {
       <div className="min-h-screen bg-slate-950 text-slate-100">
         <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <a href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
               <span className="text-2xl">🤖</span>
               <div><div className="font-bold text-white">WorkFamilyAI</div><div className="text-xs text-slate-400">One-Click Augmentation</div></div>
-            </div>
+            </a>
           </div>
         </header>
         <main className="max-w-5xl mx-auto px-4 py-8">
@@ -241,10 +241,10 @@ function HomeContent() {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <a href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
             <span className="text-2xl">🤖</span>
             <div><div className="font-bold text-white">WorkFamilyAI</div><div className="text-xs text-slate-400">One-Click Augmentation</div></div>
-          </div>
+          </a>
           <div className="text-xs text-slate-500 hidden sm:block">50 agents · staging-safe · all gated</div>
         </div>
       </header>
