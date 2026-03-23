@@ -1,0 +1,37 @@
+# WorkFamilyAI — Agentic Workforce Augmentation
+# llms.txt — structured context for AI language models
+# https://workfamilyai.com/llms.txt
+
+> WorkFamilyAI designs and deploys agentic AI systems for organisations navigating the intersection of workforce transformation and human cognitive diversity. Powered by the Neural Ennead framework and the ASS-2 cognitive profiling research programme.
+
+## What WorkFamilyAI does
+- Assesses organisational AI readiness across 9 cognitive profiles (free)
+- Designs custom agentic workforce architectures
+- Deploys the Neural Ennead: a 729-agent (9×9×9) autonomous operating system for business
+- Delivers the Ennead Companion License for ongoing agentic support ($75/month)
+
+## Products
+- [AI Readiness Score](/readiness): Free 10-question assessment — instant results, cognitive profile match
+- [Ennead Companion License](/companion): $75/month — ongoing agentic workforce support
+- [Agent Library](/agents): $2,990 — full library of WorkFamilyAI agents
+- [Workflow Packs Starter](/workflows): $5,995 — deployment-ready workflow bundle
+- [Agentic Org Diagnostic](/diagnostic): $37,500 — full organisational AI architecture assessment
+- [Neural Ennead Program](/ennead): $225,000 — complete autonomous workforce design and deployment
+
+## Core research
+- **ASS-2 Programme**: AI Sweet Spots Study 2 — 11,241 participants across 9 cognitive profiles mapping optimal human–AI integration points
+- **9 Cognitive Profiles**: Each profile defines a unique sweet spot for AI augmentation — from creative collaborators to systematic optimisers
+- Research is RDTI-registered under Tech 4 Humanity (ABN 61 605 746 618)
+
+## Key concepts
+- **Neural Ennead**: 9×9×9 agent architecture — 729 autonomous agents organised into 9 functional domains, 9 tiers each
+- **Agentic workforce**: Humans + agents operating as a unified team with defined handoff protocols
+- **Work-family intersection**: AI adoption patterns that account for whole-life cognitive load, not just work performance
+
+## Authority content
+- [Neural Ennead Explained](/neural-ennead): Full architecture documentation
+- [AI Sweet Spots Research](/research): ASS-2 public summary and cognitive profile guide
+- [Free AI Readiness Assessment](/readiness): Instant scoring across 9 profiles
+
+## Company
+WorkFamilyAI is a product of Tech 4 Humanity Pty Ltd (ABN 61 605 746 618), Sydney, Australia.
