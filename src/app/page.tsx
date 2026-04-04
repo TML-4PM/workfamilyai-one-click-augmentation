@@ -274,7 +274,7 @@ export default function Page() {
                     <strong>Amount:</strong> ${priceType === 'onetime' ? selected.price1 : selected.priceMo} AUD {priceType === 'onetime' ? 'one-time' : '/mo'}<br /><br />
                     Click below to email us — we'll send a payment link within the hour.
                   </div>
-                  <a href={`mailto:hello@workfamilyai.org?subject=Deploy ${selected.sku}: ${selected.name}&body=Hi, I'd like to deploy ${selected.name} (${selected.sku}). Please send me a payment link.`}
+                  <a href={`mailto:troy@tech4humanity.com.au?subject=Deploy ${selected.sku}: ${selected.name}&body=Hi, I'd like to deploy ${selected.name} (${selected.sku}). Please send me a payment link.`}
                     style={{ display: 'block', background: '#0a0a08', color: '#f59e0b', textDecoration: 'none', textAlign: 'center', fontFamily: 'Bebas Neue', fontSize: 20, letterSpacing: 2, padding: 16 }}>
                     EMAIL TO DEPLOY →
                   </a>
